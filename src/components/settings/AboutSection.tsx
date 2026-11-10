@@ -97,20 +97,20 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     try {
       const targetVersion = updateInfo?.availableVersion ?? version ?? "";
       const displayVersion = targetVersion.startsWith("v")
-        ? targetVersion
+        ? `personal-${targetVersion.slice(1)}`
         : targetVersion
-          ? `v${targetVersion}`
+          ? `personal-${targetVersion}`
           : "";
 
       if (!displayVersion) {
         await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
+          "https://github.com/2tdbbfgk2m-beep/cc-switch/releases",
         );
         return;
       }
 
       await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
+        `https://github.com/2tdbbfgk2m-beep/cc-switch/releases/tag/${displayVersion}`,
       );
     } catch (error) {
       console.error("[AboutSection] Failed to open release notes", error);
