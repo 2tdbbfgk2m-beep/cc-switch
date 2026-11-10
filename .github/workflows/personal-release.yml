@@ -1,0 +1,103 @@
+name: Personal macOS Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == '2tdbbfgk2m-beep/cc-switch'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Set personal version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json')).version;
+          const path = 'src-tauri/tauri.personal.conf.json';
+          const config = JSON.parse(fs.readFileSync(path));
+          config.version = `${base.split('-')[0]}-personal.${process.env.RUN_NUMBER}`;
+          fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${config.version}\n`);
+          NODE
+
+      - name: Read Rust toolchain
+        id: rust
+        run: |
+          channel=$(sed -nE 's/^channel *= *"([^"]+)".*/\1/p' rust-toolchain.toml)
+          test -n "$channel"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: personal-macos-arm64
+          cache-on-failure: true
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm vitest run tests/config/whatsNewEntries.test.ts
+
+      - name: Build signed updater and draft release
+        id: build
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          APPLE_SIGNING_IDENTITY: '-'
+        with:
+          tagName: personal-__VERSION__
+          releaseName: 'CC Switch __VERSION__ (personal macOS ARM64)'
+          releaseBody: |
+            Personal build of CC Switch for Apple silicon Macs.
+            Upstream source: https://github.com/farion1231/cc-switch
+            Updates use this fork and its own Tauri updater signing key.
+            This build is ad-hoc signed and has no Apple Developer ID notarization.
+          releaseDraft: true
+          prerelease: false
+          args: --config src-tauri/tauri.personal.conf.json --target aarch64-apple-darwin --bundles app
+
+      - name: Validate and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release download "personal-$VERSION" --pattern latest.json --dir "$RUNNER_TEMP/update-check"
+          MANIFEST="$RUNNER_TEMP/update-check/latest.json" node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST));
+          assert.equal(manifest.version, process.env.VERSION);
+          const platform = manifest.platforms['darwin-aarch64'];
+          assert.ok(platform?.signature, 'Missing macOS ARM64 updater signature');
+          assert.ok(platform.url.startsWith(`https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/personal-${process.env.VERSION}/`));
+          assert.ok(platform.url.endsWith('.app.tar.gz'));
+          console.log(`Validated updater manifest for ${manifest.version}`);
+          NODE
+          gh release edit "personal-$VERSION" --draft=false --latest

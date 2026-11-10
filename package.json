@@ -13,7 +13,9 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,css,json}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,css,json}\"",
     "test:unit": "vitest run",
-    "test:unit:watch": "vitest watch"
+    "test:unit:watch": "vitest watch",
+    "dev:personal": "pnpm tauri dev --config src-tauri/tauri.personal.conf.json",
+    "build:personal": "pnpm tauri build --config src-tauri/tauri.personal.conf.json"
   },
   "keywords": [],
   "author": "Jason Young",
