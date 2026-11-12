@@ -54,6 +54,7 @@ impl McpApps {
             AppType::ClaudeDesktop => false,
             AppType::Agy => self.agy,
             AppType::Copilot => self.copilot,
+            AppType::Commandcode => false,
         }
     }
 
@@ -75,6 +76,7 @@ impl McpApps {
             AppType::Agy => self.agy = enabled,
             AppType::Omp => self.omp = enabled,
             AppType::Copilot => self.copilot = enabled,
+            AppType::Commandcode => {}
         }
     }
 
@@ -190,7 +192,7 @@ impl SkillApps {
             AppType::Agy => self.agy,
             AppType::Omp => self.omp,
             AppType::Copilot => self.copilot,
-            AppType::ClaudeDesktop => false,
+            AppType::ClaudeDesktop | AppType::Commandcode => false,
         }
     }
 
@@ -212,6 +214,7 @@ impl SkillApps {
             AppType::Omp => self.omp = enabled,
             AppType::Copilot => self.copilot = enabled,
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
+            AppType::Commandcode => {}
         }
     }
 
@@ -500,6 +503,7 @@ pub enum AppType {
     Agy,
     Omp,
     Copilot,
+    Commandcode,
 }
 
 impl AppType {
@@ -520,6 +524,7 @@ impl AppType {
             AppType::Agy => "agy",
             AppType::Omp => "omp",
             AppType::Copilot => "copilot",
+            AppType::Commandcode => "commandcode",
         }
     }
 
@@ -544,6 +549,7 @@ impl AppType {
                 | AppType::Dsh
                 | AppType::Omp
                 | AppType::Copilot
+                | AppType::Commandcode
         )
     }
 
@@ -579,6 +585,7 @@ impl AppType {
             AppType::Agy,
             AppType::Omp,
             AppType::Copilot,
+            AppType::Commandcode,
         ]
         .into_iter()
     }
@@ -607,10 +614,11 @@ impl FromStr for AppType {
             "copilot" | "copilot-cli" | "github-copilot" | "github-copilot-cli" => {
                 Ok(AppType::Copilot)
             }
+            "commandcode" | "command-code" | "cmd" => Ok(AppType::Commandcode),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, copilot。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, copilot."),
+                format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, copilot, commandcode。"),
+                format!("Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, dsh, agy, omp, copilot, commandcode."),
             )),
         }
     }
@@ -656,7 +664,8 @@ impl CommonConfigSnippets {
             | AppType::Dsh
             | AppType::Omp
             | AppType::Agy
-            | AppType::Copilot => None,
+            | AppType::Copilot
+            | AppType::Commandcode => None,
         }
     }
 
@@ -677,7 +686,8 @@ impl CommonConfigSnippets {
             | AppType::Dsh
             | AppType::Omp
             | AppType::Agy
-            | AppType::Copilot => {}
+            | AppType::Copilot
+            | AppType::Commandcode => {}
         }
     }
 }
@@ -1011,7 +1021,8 @@ impl MultiAppConfig {
             | AppType::Dsh
             | AppType::Omp
             | AppType::Agy
-            | AppType::Copilot => return Ok(false),
+            | AppType::Copilot
+            | AppType::Commandcode => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -1061,7 +1072,8 @@ impl MultiAppConfig {
                 | AppType::Dsh
                 | AppType::Omp
                 | AppType::Agy
-                | AppType::Copilot => continue, // Pi didn't exist in v3.6.x, skip
+                | AppType::Copilot
+                | AppType::Commandcode => continue, // Pi didn't exist in v3.6.x, skip
             };
 
             for (id, entry) in old_servers {

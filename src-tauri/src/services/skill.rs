@@ -695,7 +695,8 @@ impl SkillService {
             | AppType::Mcode
             | AppType::Kimi
             | AppType::Dsh
-            | AppType::Copilot => {}
+            | AppType::Copilot
+            | AppType::Commandcode => {}
             AppType::Codex => {
                 if let Some(custom) = crate::settings::get_codex_override_dir() {
                     return Ok(custom.join("skills"));
@@ -761,6 +762,7 @@ impl SkillService {
             AppType::Pi => crate::pi_config::get_pi_agent_dir()?.join("skills"),
             AppType::Omp => crate::omp_config::get_omp_agent_dir()?.join("skills"),
             AppType::Agy => home.join(".gemini").join("config").join("skills"),
+            AppType::Commandcode => crate::commandcode_config::data_dir().join("skills"),
         })
     }
 
@@ -3236,7 +3238,11 @@ impl SkillService {
     fn is_sync_managed_app(app: &AppType) -> bool {
         !matches!(
             app,
-            AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Pi | AppType::Omp
+            AppType::ClaudeDesktop
+                | AppType::OpenClaw
+                | AppType::Pi
+                | AppType::Omp
+                | AppType::Commandcode
         )
     }
 

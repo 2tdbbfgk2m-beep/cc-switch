@@ -71,6 +71,7 @@ export function AddProviderDialog({
     appId !== "pi" &&
     appId !== "omp" &&
     appId !== "mcode" &&
+    appId !== "commandcode" &&
     appId !== "dsh" &&
     appId !== "kimi" &&
     appId !== "copilot" &&
@@ -296,6 +297,7 @@ export function AddProviderDialog({
           appId === "hermes" ||
           appId === "pi" ||
           appId === "mcode" ||
+          appId === "commandcode" ||
           appId === "kimi" ||
           appId === "dsh" ||
           appId === "omp" ||

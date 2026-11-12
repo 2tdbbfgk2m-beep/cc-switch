@@ -46,6 +46,8 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Omp => crate::omp_config::get_omp_agent_dir()?,
         // Copilot CLI 的个人指令是 `~/.copilot/copilot-instructions.md`（`copilot instruction list`）。
         AppType::Copilot => crate::copilot_config::copilot_dir(),
+        // Command Code 的全局指令是 ~/.commandcode/AGENTS.md（它的 Claude 迁移也写到这里）。
+        AppType::Commandcode => crate::commandcode_config::data_dir(),
         AppType::ClaudeDesktop => unreachable!("handled above"),
     };
 
@@ -60,7 +62,8 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         | AppType::Agy
         | AppType::Kimi
         | AppType::Dsh
-        | AppType::Omp => "AGENTS.md",
+        | AppType::Omp
+        | AppType::Commandcode => "AGENTS.md",
         AppType::Copilot => "copilot-instructions.md",
         AppType::ClaudeDesktop => unreachable!("handled above"),
     };

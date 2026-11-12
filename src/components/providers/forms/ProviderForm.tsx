@@ -359,7 +359,11 @@ function CodexConfigEditorWithName({
 export function ProviderForm(props: ProviderFormProps) {
   if (props.appId === "kimi") return <KimiProviderForm {...props} />;
   if (props.appId === "copilot") return <CopilotProviderForm {...props} />;
-  if (props.appId === "mcode" || props.appId === "dsh")
+  if (
+    props.appId === "mcode" ||
+    props.appId === "dsh" ||
+    props.appId === "commandcode"
+  )
     return <McodeProviderForm {...props} />;
   if (props.appId === "pi" || props.appId === "omp") {
     return <PiProviderForm {...props} />;

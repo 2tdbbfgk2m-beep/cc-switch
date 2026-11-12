@@ -110,7 +110,12 @@ pub fn import_provider_from_deeplink(
         copilot_link_provider_id(state, &name)?
     } else if matches!(
         app_type,
-        AppType::OpenCode | AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Omp
+        AppType::OpenCode
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Commandcode
     ) {
         // Display names may be Unicode, but these apps' native keys must pass their slug rules
         // (DeepSeek Harness only takes lowercase hyphenated ids, MCode ASCII letters and digits).
@@ -446,6 +451,13 @@ pub(crate) fn build_provider_from_request(
             settings
         }
         AppType::Omp => build_omp_settings(request, api_format)?,
+        AppType::Commandcode => {
+            let mut settings = build_additive_app_settings(request, api_format);
+            if settings.get("api").is_none() {
+                settings["api"] = json!("openai-completions");
+            }
+            settings
+        }
     };
 
     // Build usage script configuration if provided

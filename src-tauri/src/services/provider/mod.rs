@@ -161,7 +161,7 @@ fn lock_native_provider_operations(
 ) -> Option<tokio::sync::OwnedMutexGuard<()>> {
     matches!(
         app_type,
-        AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot
+        AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot | AppType::Commandcode
     )
     .then(|| {
         futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()))
@@ -5517,9 +5517,14 @@ impl ProviderService {
         if app_type == AppType::Copilot {
             return Self::list_copilot(state);
         }
-        if matches!(app_type, AppType::Mcode | AppType::Kimi | AppType::Dsh) {
+        if matches!(
+            app_type,
+            AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Commandcode
+        ) {
             let native = if matches!(app_type, AppType::Dsh) {
                 crate::dsh_config::get_providers()?
+            } else if app_type == AppType::Commandcode {
+                crate::commandcode_config::get_providers()?
             } else if app_type == AppType::Kimi {
                 crate::kimi_config::get_providers()?
             } else {
@@ -5704,19 +5709,25 @@ impl ProviderService {
                 Ok(true)
             };
         }
-        let previous = state.db.get_provider_by_id(&provider.id, "mcode")?;
-        state.db.save_provider("mcode", provider)?;
+        let app = app_type.as_str();
+        let previous = state.db.get_provider_by_id(&provider.id, app)?;
+        state.db.save_provider(app, provider)?;
         if write_live {
             let config = provider.settings_config.clone();
-            let written = if create {
-                crate::mcode_config::add_provider(&provider.id, config)
-            } else {
-                crate::mcode_config::set_provider(&provider.id, config)
+            let written = match (app_type, create) {
+                (AppType::Commandcode, true) => {
+                    crate::commandcode_config::add_provider(&provider.id, config)
+                }
+                (AppType::Commandcode, false) => {
+                    crate::commandcode_config::set_provider(&provider.id, config)
+                }
+                (_, true) => crate::mcode_config::add_provider(&provider.id, config),
+                (_, false) => crate::mcode_config::set_provider(&provider.id, config),
             };
             if let Err(error) = written {
                 match previous {
-                    Some(previous) => state.db.save_provider("mcode", &previous)?,
-                    None => state.db.delete_provider("mcode", &provider.id)?,
+                    Some(previous) => state.db.save_provider(app, &previous)?,
+                    None => state.db.delete_provider(app, &provider.id)?,
                 }
                 return Err(error);
             }
@@ -5794,7 +5805,7 @@ impl ProviderService {
 
         if matches!(
             app_type,
-            AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot
+            AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot | AppType::Commandcode
         ) {
             // The key is user-chosen, and saving would overwrite an existing row or live node.
             // The per-app lock also serializes native list refreshes and other mutations;
@@ -5809,6 +5820,8 @@ impl ProviderService {
                     crate::kimi_config::provider_key_exists(&provider.id)?
                 } else if app_type == AppType::Copilot {
                     crate::copilot_config::provider_key_exists(&provider.id)?
+                } else if app_type == AppType::Commandcode {
+                    crate::commandcode_config::provider_key_exists(&provider.id)?
                 } else {
                     crate::mcode_config::provider_key_exists(&provider.id)?
                 }
@@ -6537,7 +6550,11 @@ impl ProviderService {
 
             if matches!(
                 app_type,
-                AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot
+                AppType::Mcode
+                    | AppType::Kimi
+                    | AppType::Dsh
+                    | AppType::Copilot
+                    | AppType::Commandcode
             ) {
                 return Self::save_native_provider(
                     state,
@@ -6768,6 +6785,7 @@ impl ProviderService {
                     AppType::Mcode => crate::mcode_config::remove_provider(id)?,
                     AppType::Kimi => crate::kimi_config::remove_provider(id)?,
                     AppType::Dsh => crate::dsh_config::remove_provider(id)?,
+                    AppType::Commandcode => crate::commandcode_config::remove_provider(id)?,
                     _ => {}
                 }
             }
@@ -6937,6 +6955,7 @@ impl ProviderService {
             AppType::Mcode => crate::mcode_config::remove_provider(id)?,
             AppType::Kimi => crate::kimi_config::remove_provider(id)?,
             AppType::Dsh => crate::dsh_config::remove_provider(id)?,
+            AppType::Commandcode => crate::commandcode_config::remove_provider(id)?,
             _ => {
                 return Err(AppError::Message(format!(
                     "App {} does not support remove from live config",
@@ -7242,6 +7261,9 @@ impl ProviderService {
                     AppType::Mcode => crate::mcode_config::remove_provider(&provider.id),
                     AppType::Kimi => crate::kimi_config::remove_provider(&provider.id),
                     AppType::Dsh => crate::dsh_config::remove_provider(&provider.id),
+                    AppType::Commandcode => {
+                        crate::commandcode_config::remove_provider(&provider.id)
+                    }
                     _ => Ok(()),
                 };
 
@@ -7511,7 +7533,8 @@ impl ProviderService {
             | AppType::Dsh
             | AppType::Omp
             | AppType::Agy
-            | AppType::Copilot => Ok(String::new()),
+            | AppType::Copilot
+            | AppType::Commandcode => Ok(String::new()),
         }
     }
 
@@ -7535,7 +7558,8 @@ impl ProviderService {
             | AppType::Dsh
             | AppType::Omp
             | AppType::Agy
-            | AppType::Copilot => Ok(String::new()),
+            | AppType::Copilot
+            | AppType::Commandcode => Ok(String::new()),
         }
     }
 
@@ -8311,6 +8335,10 @@ impl ProviderService {
             AppType::Mcode => {
                 crate::mcode_config::validate_provider(&provider.id, &provider.settings_config)?
             }
+            AppType::Commandcode => crate::commandcode_config::validate_provider(
+                &provider.id,
+                &provider.settings_config,
+            )?,
             AppType::Pi => {
                 crate::pi_config::validate_provider_node(&provider.id, &provider.settings_config)?;
             }
@@ -8541,6 +8569,20 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
+            AppType::Commandcode => Ok((
+                provider
+                    .settings_config
+                    .pointer("/options/apiKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                provider
+                    .settings_config
+                    .pointer("/options/baseURL")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+            )),
             AppType::Dsh => Ok((
                 provider
                     .settings_config

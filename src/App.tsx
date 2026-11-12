@@ -881,6 +881,7 @@ function App() {
       try {
         if (
           activeApp === "mcode" ||
+          activeApp === "commandcode" ||
           activeApp === "dsh" ||
           activeApp === "kimi" ||
           activeApp === "agy" ||
@@ -1133,6 +1134,7 @@ function App() {
       ]);
     } else if (
       app === "mcode" ||
+      app === "commandcode" ||
       app === "dsh" ||
       app === "kimi" ||
       app === "copilot"
@@ -1307,6 +1309,7 @@ function App() {
       duplicatedProvider.addToLive = false;
     } else if (
       activeApp === "mcode" ||
+      activeApp === "commandcode" ||
       activeApp === "dsh" ||
       activeApp === "kimi"
     ) {
@@ -1529,6 +1532,7 @@ function App() {
         <>
           {currentView === "providers" &&
             activeApp !== "mcode" &&
+            activeApp !== "commandcode" &&
             activeApp !== "dsh" &&
             activeApp !== "kimi" &&
             (settingsData?.showProfileSwitcher ?? false) && (
@@ -1702,6 +1706,7 @@ function App() {
               activeApp === "hermes" ||
               activeApp === "pi" ||
               activeApp === "mcode" ||
+              activeApp === "commandcode" ||
               activeApp === "kimi" ||
               activeApp === "dsh" ||
               activeApp === "omp" ||

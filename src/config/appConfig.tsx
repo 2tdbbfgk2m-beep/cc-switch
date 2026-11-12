@@ -33,6 +33,7 @@ export const APP_IDS: AppId[] = [
   "agy",
   "omp",
   "copilot",
+  "commandcode",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -51,6 +52,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   agy: true,
   omp: true,
   copilot: true,
+  commandcode: true,
 };
 
 /**
@@ -153,6 +155,7 @@ export type AdditiveAppId = Extract<
   | "dsh"
   | "omp"
   | "copilot"
+  | "commandcode"
 >;
 
 export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
@@ -165,6 +168,7 @@ export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
   "pi",
   "omp",
   "copilot",
+  "commandcode",
 ];
 
 export function isAdditiveAppId(appId: string): appId is AdditiveAppId {
@@ -194,7 +198,10 @@ export function usesEditorView(appId: AppId): boolean {
 }
 
 /** Claude Desktop、OpenClaw 不由 CC Switch 管理 MCP；Pi 1.0 起内置 MCP（`~/.pi/agent/mcp.json`） */
-export type McpAppId = Exclude<AppId, "claude-desktop" | "openclaw">;
+export type McpAppId = Exclude<
+  AppId,
+  "claude-desktop" | "openclaw" | "commandcode"
+>;
 export const MCP_APP_IDS: McpAppId[] = [
   "claude",
   "codex",
@@ -318,6 +325,13 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
     activeClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     badgeClass:
       "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-0 gap-1.5",
+  },
+  commandcode: {
+    label: "Command Code",
+    icon: <ProviderIcon icon="commandcode" name="Command Code" size={14} />,
+    activeClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    badgeClass:
+      "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-0 gap-1.5",
   },
   mcode: {
     label: "MiniMax Code",

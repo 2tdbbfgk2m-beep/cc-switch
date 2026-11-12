@@ -189,6 +189,7 @@ export function ProviderList({
         case "kimi":
         case "dsh":
         case "mcode":
+        case "commandcode":
         case "copilot":
           return provider.meta?.liveConfigManaged === true;
         case "opencode":
@@ -523,6 +524,7 @@ export function ProviderList({
           onImport={
             isPiFamilyApp(appId) ||
             appId === "mcode" ||
+            appId === "commandcode" ||
             appId === "kimi" ||
             appId === "dsh"
               ? undefined

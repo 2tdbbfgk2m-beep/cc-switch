@@ -78,6 +78,7 @@ export const useAddProviderMutation = (appId: AppId) => {
         appId === "hermes" ||
         appId === "pi" ||
         appId === "mcode" ||
+        appId === "commandcode" ||
         appId === "kimi" ||
         appId === "dsh" ||
         appId === "omp"
