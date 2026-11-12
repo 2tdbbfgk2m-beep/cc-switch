@@ -175,6 +175,8 @@ command = "say"
                 dsh: false,
                 pi: false,
                 omp: false,
+
+                commandcode: false,
             },
             description: None,
             homepage: None,
@@ -1590,6 +1592,8 @@ fn switch_codex_ignores_a_broken_claude_json() {
                 dsh: false,
                 pi: false,
                 omp: false,
+
+                commandcode: false,
             },
             description: None,
             homepage: None,
@@ -1658,6 +1662,8 @@ fn sync_all_enabled_reports_broken_app_but_projects_the_rest() {
                 dsh: false,
                 pi: false,
                 omp: false,
+
+                commandcode: false,
             },
             description: None,
             homepage: None,

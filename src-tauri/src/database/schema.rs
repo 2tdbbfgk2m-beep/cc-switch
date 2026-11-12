@@ -105,7 +105,8 @@ impl Database {
             enabled_copilot BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
             enabled_pi BOOLEAN NOT NULL DEFAULT 0,
-            enabled_omp BOOLEAN NOT NULL DEFAULT 0
+            enabled_omp BOOLEAN NOT NULL DEFAULT 0,
+            enabled_commandcode BOOLEAN NOT NULL DEFAULT 0
         )",
             [],
         )
@@ -694,6 +695,18 @@ impl Database {
                             }
                         }
                         Self::set_user_version(conn, 25)?;
+                    }
+                    25 => {
+                        // Command Code：只存 MCP 开关；Skills 不归 CC Switch 管。
+                        if Self::table_exists(conn, "mcp_servers")? {
+                            Self::add_column_if_missing(
+                                conn,
+                                "mcp_servers",
+                                "enabled_commandcode",
+                                "BOOLEAN NOT NULL DEFAULT 0",
+                            )?;
+                        }
+                        Self::set_user_version(conn, 26)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(

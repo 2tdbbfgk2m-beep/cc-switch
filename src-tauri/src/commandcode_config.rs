@@ -58,6 +58,10 @@ fn settings_path() -> PathBuf {
     data_dir().join("config.json")
 }
 
+pub(crate) fn mcp_path() -> PathBuf {
+    data_dir().join("mcp.json")
+}
+
 /// Stands in for the Command Code account login; see the module docs.
 const PLACEHOLDER_LOGIN: &str = "cc-switch-local-only";
 
@@ -200,6 +204,65 @@ pub(crate) fn provider_key_exists(id: &str) -> Result<bool, AppError> {
         .get(map_key(&document))
         .and_then(Value::as_object)
         .is_some_and(|providers| providers.contains_key(id)))
+}
+
+/// Servers declared in `~/.commandcode/mcp.json` (user scope).
+pub(crate) fn mcp_entries() -> Result<IndexMap<String, Value>, AppError> {
+    let document = read_object(&mcp_path())?;
+    let Some(Value::Object(servers)) = document.get("mcpServers") else {
+        return Ok(IndexMap::new());
+    };
+    Ok(servers
+        .iter()
+        .filter(|(_, entry)| entry.is_object())
+        .map(|(id, entry)| (id.clone(), entry.clone()))
+        .collect())
+}
+
+/// Writes (or removes, with `None`) one `mcpServers` entry; other servers and top-level
+/// keys are preserved, and the file is rolled back if `commit` fails.
+pub(crate) fn sync_mcp_and_commit<T>(
+    id: &str,
+    spec: Option<&Value>,
+    commit: impl FnOnce() -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let path = mcp_path();
+    crate::mcode_config::write_and_commit(&path, || write_mcp(&path, id, spec), commit)
+}
+
+fn write_mcp(path: &Path, id: &str, spec: Option<&Value>) -> Result<(), AppError> {
+    let mut document = read_object(path)?;
+    let servers = document
+        .entry("mcpServers")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| AppError::Config("Invalid Command Code mcpServers config".into()))?;
+    match spec {
+        Some(spec) => {
+            servers.insert(id.into(), native_mcp_spec(spec)?);
+        }
+        None => {
+            servers.remove(id);
+        }
+    }
+    write_object(path, &document)
+}
+
+/// Command Code reads the same field names CC Switch stores (`type`, `command`, `args`,
+/// `env`, `cwd`, `url`, `headers`); anything else is UI-only and left out.
+fn native_mcp_spec(spec: &Value) -> Result<Value, AppError> {
+    let object = spec
+        .as_object()
+        .ok_or_else(|| AppError::Config("MCP server definition must be a JSON object".into()))?;
+    let mut entry = Map::new();
+    for field in ["type", "command", "args", "env", "cwd", "url", "headers"] {
+        if let Some(value) = object.get(field) {
+            if !value.is_null() {
+                entry.insert(field.into(), value.clone());
+            }
+        }
+    }
+    Ok(Value::Object(entry))
 }
 
 pub(crate) fn validate_provider(id: &str, config: &Value) -> Result<(), AppError> {
@@ -452,6 +515,40 @@ mod tests {
         assert!(provider_key_exists("other").unwrap());
         // A signed-in account is left alone: no placeholder, no forced local-only mode.
         assert!(!dir.join("config.json").exists());
+        std::env::remove_var("CC_SWITCH_TEST_HOME");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn mcp_entries_keep_foreign_servers_and_round_trip() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("CC_SWITCH_TEST_HOME", home.path());
+        let dir = home.path().join(".commandcode");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers":{"other":{"command":"other-bin"}},"extra":1}"#,
+        )
+        .unwrap();
+
+        let spec = serde_json::json!({
+            "type": "stdio",
+            "command": "node",
+            "args": ["/tmp/deepseek-web.mjs"],
+            "uiOnly": "dropped"
+        });
+        sync_mcp_and_commit("deepseek-web", Some(&spec), || Ok(())).unwrap();
+        let entries = mcp_entries().unwrap();
+        assert_eq!(entries["deepseek-web"]["command"], "node");
+        assert!(entries["deepseek-web"].get("uiOnly").is_none());
+        assert!(entries.contains_key("other"));
+        let document: Value =
+            serde_json::from_slice(&fs::read(dir.join("mcp.json")).unwrap()).unwrap();
+        assert_eq!(document["extra"], 1);
+
+        sync_mcp_and_commit("deepseek-web", None, || Ok(())).unwrap();
+        assert!(!mcp_entries().unwrap().contains_key("deepseek-web"));
+        assert!(mcp_entries().unwrap().contains_key("other"));
         std::env::remove_var("CC_SWITCH_TEST_HOME");
     }
 

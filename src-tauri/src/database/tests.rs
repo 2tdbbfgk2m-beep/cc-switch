@@ -1587,7 +1587,7 @@ fn migration_v23_to_v24_adds_dsh_flags_without_changing_omp_or_skill_state() {
 }
 
 #[test]
-fn migration_v24_to_v25_adds_copilot_flags_without_changing_dsh_state() {
+fn migration_v24_upgrades_to_current_schema_keeping_earlier_flags() {
     let conn = Connection::open_in_memory().expect("open memory db");
     Database::create_tables_on_conn(&conn).expect("create tables");
     conn.execute_batch(
@@ -1602,8 +1602,16 @@ fn migration_v24_to_v25_adds_copilot_flags_without_changing_dsh_state() {
     Database::set_user_version(&conn, 24).expect("set user_version=24");
 
     Database::apply_schema_migrations_on_conn(&conn).expect("upgrade v24 database");
-    assert_eq!(Database::get_user_version(&conn).unwrap(), 25);
-    assert_eq!(SCHEMA_VERSION, 25);
+    assert_eq!(Database::get_user_version(&conn).unwrap(), SCHEMA_VERSION);
+
+    // 后加的应用列都落位且默认关闭。
+    let commandcode: bool = conn
+        .query_row("SELECT enabled_commandcode FROM mcp_servers", [], |row| {
+            row.get(0)
+        })
+        .expect("read commandcode flag");
+    assert!(!commandcode);
+
     for table in ["mcp_servers", "skills"] {
         let flags: (bool, bool) = conn
             .query_row(

@@ -54,6 +54,7 @@ export const TOOL_NAMES = [
   "agy",
   "omp",
   "copilot",
+  "commandcode",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 export type ToolLifecycleAction = "install" | "update" | "uninstall";
@@ -243,6 +244,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
   agy: "Antigravity CLI",
   omp: "Oh My Pi",
   copilot: "GitHub Copilot CLI",
+  commandcode: "Command Code",
 };
 
 // 后端返回的 tool 是 string；这里收敛唯一的 ToolName 断言与兜底，供升级确认
@@ -266,6 +268,7 @@ export const TOOL_APP_IDS: Record<ToolName, AppId> = {
   agy: "agy",
   omp: "omp",
   copilot: "copilot",
+  commandcode: "commandcode",
 };
 
 // 工具版本探测代价高：每个工具一次 `--version` 子进程 + 一次 npm/github/pypi 网络请求。

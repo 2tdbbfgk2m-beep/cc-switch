@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension, Row};
 
 const MCP_SERVER_SELECT: &str =
-    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_mcode, enabled_pi, enabled_agy, enabled_kimi, enabled_omp, enabled_dsh, enabled_copilot FROM mcp_servers";
+    "SELECT id, name, server_config, description, homepage, docs, tags, enabled_claude, enabled_codex, enabled_gemini, enabled_grokbuild, enabled_opencode, enabled_hermes, enabled_mcode, enabled_pi, enabled_agy, enabled_kimi, enabled_omp, enabled_dsh, enabled_copilot, enabled_commandcode FROM mcp_servers";
 
 fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
     let id: String = row.get(0)?;
@@ -49,6 +49,7 @@ fn row_to_mcp_server(row: &Row<'_>) -> rusqlite::Result<(String, McpServer)> {
                 omp: row.get(17)?,
                 dsh: row.get(18)?,
                 copilot: row.get(19)?,
+                commandcode: row.get(20)?,
             },
             description,
             homepage,
@@ -104,7 +105,8 @@ impl Database {
             AppType::Copilot => Some("enabled_copilot"),
             AppType::Pi => Some("enabled_pi"),
             AppType::Omp => Some("enabled_omp"),
-            AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Commandcode => None,
+            AppType::Commandcode => Some("enabled_commandcode"),
+            AppType::ClaudeDesktop | AppType::OpenClaw => None,
             AppType::Agy => Some("enabled_agy"),
         };
 

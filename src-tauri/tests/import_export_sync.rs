@@ -430,6 +430,8 @@ command = "echo"
                 dsh: false,
                 pi: false,
                 omp: false,
+
+                commandcode: false,
             },
             description: None,
             homepage: None,
@@ -567,6 +569,8 @@ fn import_from_claude_merges_into_config() {
                 dsh: false,
                 pi: false,
                 omp: false,
+
+                commandcode: false,
             },
             description: None,
             homepage: None,

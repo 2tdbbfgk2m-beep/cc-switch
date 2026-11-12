@@ -18,6 +18,8 @@ pub struct McpApps {
     #[serde(default)]
     pub copilot: bool,
     #[serde(default)]
+    pub commandcode: bool,
+    #[serde(default)]
     pub claude: bool,
     #[serde(default)]
     pub codex: bool,
@@ -122,6 +124,9 @@ impl McpApps {
         if self.omp {
             apps.push(AppType::Omp);
         }
+        if self.commandcode {
+            apps.push(AppType::Commandcode);
+        }
         apps
     }
 
@@ -140,6 +145,7 @@ impl McpApps {
             && !self.mcode
             && !self.pi
             && !self.omp
+            && !self.commandcode
     }
 }
 

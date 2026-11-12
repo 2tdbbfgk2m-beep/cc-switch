@@ -266,6 +266,7 @@ impl McpService {
                 | AppType::Pi
                 | AppType::Agy
                 | AppType::Copilot
+                | AppType::Commandcode
         ) {
             if let Some(server) = state.db.get_all_mcp_servers()?.get(server_id) {
                 let spec = enabled.then_some(&server.server);
@@ -286,6 +287,8 @@ impl McpService {
                     mcp::kimi::sync_and_commit(server_id, spec, commit)?;
                 } else if app == AppType::Copilot {
                     mcp::copilot::sync_and_commit(server_id, spec, commit)?;
+                } else if app == AppType::Commandcode {
+                    mcp::commandcode::sync_and_commit(server_id, spec, commit)?;
                 } else if app == AppType::Mcode {
                     mcp::mcode::sync_and_commit(server_id, spec, commit)?;
                 } else if app == AppType::Omp {
@@ -332,6 +335,7 @@ impl McpService {
                     | AppType::Pi
                     | AppType::Agy
                     | AppType::Copilot
+                    | AppType::Commandcode
             ) {
                 continue; // Already written before saving the managed state.
             }
@@ -398,7 +402,7 @@ impl McpService {
             AppType::Pi => mcp::pi::sync(&server.id, Some(&server.server))?,
             AppType::Agy => mcp::agy::sync(&server.id, Some(&server.server))?,
             AppType::Omp => mcp::sync_single_server_to_omp(&server.id, &server.server)?,
-            AppType::Commandcode => {}
+            AppType::Commandcode => mcp::commandcode::sync(&server.id, Some(&server.server))?,
         }
         Ok(())
     }
@@ -459,7 +463,7 @@ impl McpService {
             AppType::Pi => mcp::pi::sync(id, None)?,
             AppType::Agy => mcp::agy::sync(id, None)?,
             AppType::Omp => mcp::remove_server_from_omp(id)?,
-            AppType::Commandcode => {}
+            AppType::Commandcode => mcp::commandcode::sync(id, None)?,
         }
         Ok(())
     }
@@ -883,7 +887,7 @@ impl McpService {
         let mut total = 0;
         let mut failures: Vec<String> = Vec::new();
 
-        let results: [(&str, Result<usize, AppError>); 13] = [
+        let results: [(&str, Result<usize, AppError>); 14] = [
             ("claude", Self::import_from_claude(state)),
             ("codex", Self::import_from_codex(state)),
             ("gemini", Self::import_from_gemini(state)),
@@ -897,6 +901,7 @@ impl McpService {
             ("pi", mcp::pi::import(state)),
             ("omp", Self::import_from_omp(state)),
             ("copilot", mcp::copilot::import(state)),
+            ("commandcode", mcp::commandcode::import(state)),
         ];
         for (app, result) in results {
             match result {

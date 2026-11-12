@@ -846,6 +846,7 @@ export interface McpApps {
   dsh?: boolean;
   agy?: boolean;
   copilot?: boolean;
+  commandcode?: boolean;
   claude: boolean;
   "claude-desktop"?: boolean;
   codex: boolean;

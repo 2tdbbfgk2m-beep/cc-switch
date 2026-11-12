@@ -173,9 +173,22 @@ pub struct ToolVersion {
     update_blocked_by_node: Option<tool_node_requirement::NodeRequirementGap>,
 }
 
-const VALID_TOOLS: [&str; 14] = [
-    "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes", "pi", "mcode", "kimi",
-    "dsh", "agy", "omp", "copilot",
+const VALID_TOOLS: [&str; 15] = [
+    "claude",
+    "codex",
+    "gemini",
+    "grok",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "pi",
+    "mcode",
+    "kimi",
+    "dsh",
+    "agy",
+    "omp",
+    "copilot",
+    "commandcode",
 ];
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -725,6 +738,7 @@ fn tool_display_name(tool: &str) -> &'static str {
         "dsh" => "DeepSeek Harness",
         "agy" => "Antigravity CLI",
         "copilot" => "GitHub Copilot CLI",
+        "commandcode" => "Command Code",
         _ => "Unknown",
     }
 }
@@ -1014,6 +1028,7 @@ fn npm_install_command_for(tool: &str) -> Option<&'static str> {
         "pi" => Some("npm i -g @earendil-works/pi-coding-agent@latest"),
         "kimi" => Some("npm i -g @moonshot-ai/kimi-code@latest"),
         "copilot" => Some("npm i -g @github/copilot@latest"),
+        "commandcode" => Some("npm i -g command-code@latest"),
         "dsh" => Some("npm i -g @deepseek-ai/dsh@latest --engine-strict"),
         "mcode" => Some(
             "npm i -g @minimax-ai/code@latest --ignore-scripts=false --include=optional \"--allow-scripts=@minimax-ai/code,better-sqlite3\"",
@@ -1440,6 +1455,7 @@ async fn get_single_tool_version_impl(
         "agy" => fetch_agy_latest_version(&client).await,
         "omp" => fetch_npm_latest_for_tool(&client, "@oh-my-pi/pi-coding-agent", tool, local).await,
         "copilot" => fetch_npm_latest_for_tool(&client, "@github/copilot", tool, local).await,
+        "commandcode" => fetch_npm_latest_for_tool(&client, "command-code", tool, local).await,
         _ => None,
     };
 
@@ -3620,6 +3636,7 @@ fn npm_package_for(tool: &str) -> Option<&'static str> {
         "kimi" => Some("@moonshot-ai/kimi-code"),
         "omp" => Some("@oh-my-pi/pi-coding-agent"),
         "copilot" => Some("@github/copilot"),
+        "commandcode" => Some("command-code"),
         "dsh" => Some("@deepseek-ai/dsh"),
         _ => None,
     }
