@@ -15,7 +15,9 @@ concurrency:
 jobs:
   release:
     if: github.repository == '2tdbbfgk2m-beep/cc-switch'
-    runs-on: macos-15
+    # Hosted Apple-silicon runners often never pick the job up ("not acquired by Runner");
+    # the Intel runner cross-compiles the same aarch64 target.
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
