@@ -9,6 +9,13 @@
 //! Cards use the MCode shape (`{ name?, api, options: { baseURL, apiKey, headers? }, models }`).
 //! Only the entry under the card id is touched; other providers, top-level keys and the
 //! CLI's own login fields in `auth.json` are preserved.
+//!
+//! Without a Command Code account the CLI refuses to start. It only checks that
+//! `auth.json` has a top-level `apiKey` (never validated at startup) and that key is only
+//! used for Command Code's own backend, which local-only mode never calls. So when a card
+//! is written and no account is signed in, a placeholder `apiKey` and
+//! `"localOnly": true` in `config.json` let the CLI run on BYOK providers alone. A real
+//! signed-in account is never touched.
 use crate::config::{atomic_write_private, get_home_dir};
 use crate::error::AppError;
 use indexmap::IndexMap;
@@ -45,6 +52,19 @@ pub(crate) fn config_path() -> PathBuf {
 
 fn auth_path() -> PathBuf {
     data_dir().join("auth.json")
+}
+
+fn settings_path() -> PathBuf {
+    data_dir().join("config.json")
+}
+
+/// Stands in for the Command Code account login; see the module docs.
+const PLACEHOLDER_LOGIN: &str = "cc-switch-local-only";
+
+fn has_account(auth: &Map<String, Value>) -> bool {
+    auth.get("apiKey")
+        .and_then(Value::as_str)
+        .is_some_and(|key| !key.is_empty())
 }
 
 fn read_object(path: &Path) -> Result<Map<String, Value>, AppError> {
@@ -284,6 +304,15 @@ fn write_entry(id: &str, card: Option<&Value>, create_only: bool) -> Result<(), 
             }
         }
     }
+    if card.is_some() && !has_account(&auth) {
+        auth.insert("apiKey".into(), Value::String(PLACEHOLDER_LOGIN.into()));
+        let settings_file = settings_path();
+        let mut settings = read_object(&settings_file)?;
+        if settings.get("localOnly") != Some(&Value::Bool(true)) {
+            settings.insert("localOnly".into(), Value::Bool(true));
+            write_object(&settings_file, &settings)?;
+        }
+    }
     let previous = fs::read(&path).ok();
     write_object(&path, &document)?;
     if auth != before_auth {
@@ -421,6 +450,29 @@ mod tests {
         remove_provider("mine").unwrap();
         assert!(!provider_key_exists("mine").unwrap());
         assert!(provider_key_exists("other").unwrap());
+        // A signed-in account is left alone: no placeholder, no forced local-only mode.
+        assert!(!dir.join("config.json").exists());
+        std::env::remove_var("CC_SWITCH_TEST_HOME");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn without_an_account_the_cli_is_set_up_to_run_local_only() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("CC_SWITCH_TEST_HOME", home.path());
+        let dir = home.path().join(".commandcode");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config.json"), r#"{"theme":"dark"}"#).unwrap();
+
+        add_provider("mine", card("sk-1")).unwrap();
+        let auth: Value =
+            serde_json::from_slice(&fs::read(dir.join("auth.json")).unwrap()).unwrap();
+        assert_eq!(auth["apiKey"], PLACEHOLDER_LOGIN);
+        assert_eq!(auth["mine"]["key"], "sk-1");
+        let settings: Value =
+            serde_json::from_slice(&fs::read(dir.join("config.json")).unwrap()).unwrap();
+        assert_eq!(settings, json!({ "theme": "dark", "localOnly": true }));
+        assert!(!get_providers().unwrap().contains_key("apiKey"));
         std::env::remove_var("CC_SWITCH_TEST_HOME");
     }
 }
