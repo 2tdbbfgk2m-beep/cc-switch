@@ -41,6 +41,10 @@ export function CommandcodeRoutePanel() {
 
   useEffect(() => {
     void reload();
+    // 在别处新增/修改了供应商后回到这个窗口，选项要重新读。
+    const onFocus = () => void reload();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [reload]);
 
   const toggleMode = async (enabled: boolean) => {
@@ -95,13 +99,15 @@ export function CommandcodeRoutePanel() {
 
   const availableModels = useMemo(
     () =>
-      options.flatMap((provider) =>
-        provider.models.map((model) => ({
-          providerId: provider.id,
-          modelId: model.id,
-          label: `${provider.name} · ${model.name}`,
-        })),
-      ),
+      options
+        .filter((provider) => provider.id !== "router")
+        .flatMap((provider) =>
+          provider.models.map((model) => ({
+            providerId: provider.id,
+            modelId: model.id,
+            label: `${provider.name} · ${model.name}`,
+          })),
+        ),
     [options],
   );
 
@@ -287,6 +293,7 @@ export function CommandcodeRoutePanel() {
             <select
               className={inputClass}
               value=""
+              onFocus={() => void reload()}
               onChange={(e) => {
                 const picked = availableModels.find(
                   (item) =>

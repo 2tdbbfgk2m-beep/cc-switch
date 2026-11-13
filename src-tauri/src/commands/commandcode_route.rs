@@ -53,6 +53,10 @@ pub async fn list_commandcode_route_options(
         .map_err(|e| e.to_string())?;
     let mut result = Vec::new();
     for provider in providers.values() {
+        // 路由器自己不能当候选，否则会自己路由自己。
+        if provider.id == crate::commandcode_config::ROUTER_PROVIDER_ID {
+            continue;
+        }
         let api = provider
             .settings_config
             .get("api")
@@ -106,6 +110,9 @@ pub async fn save_commandcode_slot(
         return Err("槽位名称不能为空".into());
     }
     for entry in &slot.entries {
+        if entry.provider_id == crate::commandcode_config::ROUTER_PROVIDER_ID {
+            return Err("Router 是虚拟供应商，不能作为槽位候选".into());
+        }
         let provider = state
             .db
             .get_provider_by_id(&entry.provider_id, AppType::Commandcode.as_str())
