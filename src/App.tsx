@@ -92,6 +92,7 @@ import { WindowControls } from "@/components/shell/WindowControls";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
+import { CommandcodeRoutePanel } from "@/components/providers/CommandcodeRoutePanel";
 import {
   hasOpencodeDefinition,
   isNativeOpencodeConfig,
@@ -1687,6 +1688,7 @@ function App() {
         className="min-h-0 flex-1 overflow-y-auto scroll-stable overflow-x-hidden px-6 pb-12 pt-4"
       >
         <div className="space-y-4">
+          {activeApp === "commandcode" && <CommandcodeRoutePanel />}
           <ProviderList
             {...listCallbacks}
             providers={providers}

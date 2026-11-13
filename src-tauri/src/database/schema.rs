@@ -112,6 +112,30 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        // 3b. Command Code 模型槽（本地路由：槽位 -> 有序候选）
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS commandcode_slots (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                sort_index INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS commandcode_slot_entries (
+                slot_id TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (slot_id, provider_id, model_id),
+                FOREIGN KEY (slot_id) REFERENCES commandcode_slots(id) ON DELETE CASCADE
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
         // 4. Prompts 表
         conn.execute("CREATE TABLE IF NOT EXISTS prompts (
             id TEXT NOT NULL, app_type TEXT NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL,
@@ -707,6 +731,27 @@ impl Database {
                             )?;
                         }
                         Self::set_user_version(conn, 26)?;
+                    }
+                    26 => {
+                        // Command Code 本地路由：模型槽 + 有序候选。
+                        conn.execute_batch(
+                            "CREATE TABLE IF NOT EXISTS commandcode_slots (
+                                id TEXT PRIMARY KEY,
+                                name TEXT NOT NULL,
+                                sort_index INTEGER NOT NULL DEFAULT 0,
+                                created_at INTEGER NOT NULL DEFAULT 0
+                            );
+                            CREATE TABLE IF NOT EXISTS commandcode_slot_entries (
+                                slot_id TEXT NOT NULL,
+                                provider_id TEXT NOT NULL,
+                                model_id TEXT NOT NULL,
+                                priority INTEGER NOT NULL DEFAULT 0,
+                                PRIMARY KEY (slot_id, provider_id, model_id),
+                                FOREIGN KEY (slot_id) REFERENCES commandcode_slots(id) ON DELETE CASCADE
+                            );",
+                        )
+                        .map_err(|e| AppError::Database(e.to_string()))?;
+                        Self::set_user_version(conn, 27)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(

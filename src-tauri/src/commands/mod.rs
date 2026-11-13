@@ -6,6 +6,7 @@ mod balance;
 mod claude_account;
 mod codex_oauth;
 mod coding_plan;
+pub mod commandcode_route;
 mod config;
 mod copilot;
 mod custom_icon;

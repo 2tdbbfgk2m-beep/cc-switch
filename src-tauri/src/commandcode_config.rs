@@ -62,6 +62,50 @@ pub(crate) fn mcp_path() -> PathBuf {
     data_dir().join("mcp.json")
 }
 
+/// The synthetic provider that points Command Code at the local model router.
+pub(crate) const ROUTER_PROVIDER_ID: &str = "router";
+
+/// Writes (or, with an empty slot list, removes) the `router` provider entry.
+pub(crate) fn sync_router_provider(port: Option<u16>, slots: &[(String, String)]) {
+    let path = config_path();
+    let document = match read_object(&path) {
+        Ok(document) => document,
+        Err(error) => {
+            log::warn!("Command Code providers.json unreadable: {error}");
+            return;
+        }
+    };
+    let mut document = document;
+    let key = map_key(&document);
+    let Some(providers) = document.get_mut(key).and_then(Value::as_object_mut) else {
+        return;
+    };
+    match port {
+        Some(port) if !slots.is_empty() => {
+            let models = slots
+                .iter()
+                .map(|(id, name)| (id.clone(), serde_json::json!({ "name": name })))
+                .collect::<serde_json::Map<_, _>>();
+            providers.insert(
+                ROUTER_PROVIDER_ID.into(),
+                serde_json::json!({
+                    "name": "Router",
+                    "api": "anthropic-messages",
+                    "baseURL": format!("http://127.0.0.1:{port}"),
+                    "apiKey": false,
+                    "models": models,
+                }),
+            );
+        }
+        _ => {
+            providers.remove(ROUTER_PROVIDER_ID);
+        }
+    }
+    if let Err(error) = write_object(&path, &document) {
+        log::warn!("Command Code providers.json not updated for router: {error}");
+    }
+}
+
 /// Stands in for the Command Code account login; see the module docs.
 const PLACEHOLDER_LOGIN: &str = "cc-switch-local-only";
 
