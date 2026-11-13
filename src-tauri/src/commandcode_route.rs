@@ -184,12 +184,9 @@ async fn handle_messages(
     else {
         return error_response(StatusCode::BAD_REQUEST, "请求缺少 model");
     };
-    let Some(slot_id) = model.strip_prefix("router/") else {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            &format!("模型 {model} 不是路由槽位，应形如 router/<槽位>"),
-        );
-    };
+    // Command Code 把选中的模型按「供应商/模型」展示，但发给供应商时只带模型 id，
+    // 所以这里两种写法都要认：`o55` 和 `router/o55`。
+    let slot_id = model.strip_prefix("router/").unwrap_or(model.as_str());
     let slots = match ctx.db.list_commandcode_slots() {
         Ok(slots) => slots,
         Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
@@ -470,6 +467,16 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.text().await.unwrap(), "ok:m1");
+
+        // Command Code 实际发的是裸模型 id（不带 router/ 前缀）。
+        let bare = client
+            .post(format!("http://127.0.0.1:{port}/v1/messages"))
+            .json(&serde_json::json!({ "model": "s1", "messages": [] }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bare.status(), StatusCode::OK);
+        assert_eq!(bare.text().await.unwrap(), "ok:m1");
 
         stop().await;
         std::env::remove_var("CC_SWITCH_TEST_HOME");
