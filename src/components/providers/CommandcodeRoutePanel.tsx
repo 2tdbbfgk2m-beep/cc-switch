@@ -7,7 +7,7 @@ import {
 } from "@/lib/api/commandcodeRoute";
 
 const inputClass =
-  "w-full rounded-md border border-border-default bg-bg-base px-2 py-1 text-sm text-fg-1 outline-none focus:border-border-strong";
+  "w-full rounded-md border border-border bg-app px-2 py-1 text-sm text-fg-1 outline-none focus:border-border-strong";
 
 function entryLabel(options: RouteProvider[], entry: SlotEntry) {
   const provider = options.find((item) => item.id === entry.providerId);
@@ -114,7 +114,7 @@ export function CommandcodeRoutePanel() {
   if (mode === null) return null;
 
   return (
-    <div className="space-y-3 rounded-lg border border-border-default bg-bg-card p-4">
+    <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium text-fg-1">Command Code 路由</div>
@@ -122,7 +122,7 @@ export function CommandcodeRoutePanel() {
             路由模式下由 CC Switch 按模型槽的优先级转发请求，失败自动切换。
           </div>
         </div>
-        <div className="flex rounded-md border border-border-default p-0.5 text-xs">
+        <div className="flex rounded-md border border-border p-0.5 text-xs">
           {[
             { label: "直连", value: false },
             { label: "路由", value: true },
@@ -134,7 +134,7 @@ export function CommandcodeRoutePanel() {
               onClick={() => void toggleMode(item.value)}
               className={
                 mode === item.value
-                  ? "rounded bg-fg-1 px-3 py-1 text-bg-base"
+                  ? "rounded bg-action px-3 py-1 text-action-fg"
                   : "rounded px-3 py-1 text-fg-2 hover:text-fg-1"
               }
             >
@@ -149,16 +149,14 @@ export function CommandcodeRoutePanel() {
           {slots.length === 0 && (
             <div className="text-xs text-fg-3">
               还没有槽位。建一个槽位，里面按优先级放模型；在 Command Code 里选
-              <code className="mx-1 rounded bg-bg-base px-1">
-                router/槽位标识
-              </code>
+              <code className="mx-1 rounded bg-app px-1">router/槽位标识</code>
               就会走这条路。
             </div>
           )}
           {slots.map((slot) => (
             <div
               key={slot.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-border-default px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
             >
               <div className="min-w-0">
                 <div className="truncate text-sm text-fg-1">
@@ -188,7 +186,7 @@ export function CommandcodeRoutePanel() {
                 </button>
                 <button
                   type="button"
-                  className="text-red-500 hover:text-red-400"
+                  className="text-danger hover:opacity-80"
                   disabled={busy}
                   onClick={() => void remove(slot.id)}
                 >
@@ -239,7 +237,7 @@ export function CommandcodeRoutePanel() {
             {editing.entries.map((entry, index) => (
               <div
                 key={`${entry.providerId}/${entry.modelId}/${index}`}
-                className="flex items-center justify-between gap-2 rounded border border-border-default px-2 py-1 text-xs"
+                className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1 text-xs"
               >
                 <span className="truncate text-fg-1">
                   {index + 1}. {entryLabel(options, entry)}
@@ -277,7 +275,7 @@ export function CommandcodeRoutePanel() {
                   </button>
                   <button
                     type="button"
-                    className="text-red-500 hover:text-red-400"
+                    className="text-danger hover:opacity-80"
                     onClick={() =>
                       setEditing({
                         ...editing,
@@ -341,7 +339,7 @@ export function CommandcodeRoutePanel() {
           <div className="flex justify-end gap-2 text-xs">
             <button
               type="button"
-              className="rounded border border-border-default px-3 py-1 text-fg-2"
+              className="rounded border border-border px-3 py-1 text-fg-2"
               onClick={() => setEditing(null)}
             >
               取消
@@ -349,7 +347,7 @@ export function CommandcodeRoutePanel() {
             <button
               type="button"
               disabled={busy || !editing.name.trim()}
-              className="rounded bg-fg-1 px-3 py-1 text-bg-base disabled:opacity-40"
+              className="rounded bg-action px-3 py-1 text-action-fg disabled:opacity-40"
               onClick={() => void save()}
             >
               保存
