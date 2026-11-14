@@ -422,3 +422,145 @@ test("background passes return immediately, serialize a project and recheck the 
     );
   });
 });
+
+test("global and project learning use separate roots and explicit model scopes", async () => {
+  assert.equal(
+    typeof mod.learnScopedTaste,
+    "function",
+    "separate scopes are not implemented",
+  );
+  await fixture(async ({ home, requests }) => {
+    const cwd = path.join(home, "project");
+    await fs.mkdir(cwd);
+    const roots = [];
+    const harness = {
+      createLearner:
+        (params) =>
+        async ({ state }) => {
+          roots.push(params.runtime.cwd());
+          await params.modelClient.complete({
+            system: "native learner",
+            messages: state.messages,
+            tools: [
+              { name: "read_taste_file", input_schema: { type: "object" } },
+            ],
+          });
+        },
+    };
+    await mod.learnScopedTaste({
+      harness,
+      base: { fs: {} },
+      home,
+      cwd,
+      state: {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "默认简短回答；本仓库使用 pnpm。" },
+            ],
+          },
+        ],
+      },
+      signal: new AbortController().signal,
+      sessionId: "two-scopes",
+      emit: () => {},
+    });
+    assert.deepEqual(roots, [home, cwd]);
+    assert.equal(requests.length, 2);
+    assert(
+      requests[0].body.messages[0].content.includes(
+        "<learning_scope>global</learning_scope>",
+      ),
+    );
+    assert(
+      requests[1].body.messages[0].content.includes(
+        "<learning_scope>project</learning_scope>",
+      ),
+    );
+    assert.equal(
+      requests[0].headers["x-opencode-session"],
+      requests[1].headers["x-opencode-session"],
+    );
+    assert(
+      !(await fs
+        .stat(path.join(home, ".commandcode/taste"))
+        .catch(() => false)),
+      "the orchestrator itself must not create preferences",
+    );
+  });
+});
+
+test("scoped context shares global rules across projects and resolves category links to their own roots", async () => {
+  assert.equal(
+    typeof mod.scopedTasteContext,
+    "function",
+    "scope-aware reading is not implemented",
+  );
+  await fixture(async ({ home }) => {
+    const a = path.join(home, "project-a"),
+      b = path.join(home, "project-b");
+    const global = path.join(home, ".commandcode/taste"),
+      local = path.join(a, ".commandcode/taste");
+    await fs.mkdir(global, { recursive: true });
+    await fs.mkdir(local, { recursive: true });
+    await fs.mkdir(b);
+    await fs.writeFile(
+      path.join(global, "taste.md"),
+      "# Global\n- GLOBAL_LANGUAGE: 回答用中文。 Confidence: 0.9\nSee [style/taste.md](style/taste.md)\n",
+    );
+    await fs.writeFile(
+      path.join(local, "taste.md"),
+      "# Project\n- PROJECT_A_ONLY: use pnpm. Confidence: 0.9\nSee [style/taste.md](./style/taste.md)\n",
+    );
+    const base = { fs: { read: ({ path: p }) => fs.readFile(p, "utf8") } };
+    const first = await mod.scopedTasteContext({ base, home, cwd: a });
+    const second = await mod.scopedTasteContext({ base, home, cwd: b });
+    assert(
+      first.includes("GLOBAL_LANGUAGE") && first.includes("PROJECT_A_ONLY"),
+    );
+    assert(first.includes(path.join(global, "style/taste.md")));
+    assert(first.includes(path.join(local, "style/taste.md")));
+    assert(
+      second.includes("GLOBAL_LANGUAGE") && !second.includes("PROJECT_A_ONLY"),
+    );
+    assert(
+      !(await fs.stat(path.join(b, ".commandcode")).catch(() => false)),
+      "reading context must not initialize a project",
+    );
+    assert.equal(
+      await fs.readFile(path.join(local, "taste.md"), "utf8"),
+      "# Project\n- PROJECT_A_ONLY: use pnpm. Confidence: 0.9\nSee [style/taste.md](./style/taste.md)\n",
+    );
+  });
+});
+
+test("opening the home directory as a project cannot store technical rules in global Taste", async () => {
+  assert.equal(
+    typeof mod.learnScopedTaste,
+    "function",
+    "home-directory isolation is not implemented",
+  );
+  await fixture(async ({ home }) => {
+    let passes = 0;
+    await mod.learnScopedTaste({
+      harness: {
+        createLearner: () => async () => {
+          passes++;
+        },
+      },
+      base: { fs: {} },
+      home,
+      cwd: home,
+      state: { messages: [] },
+      signal: new AbortController().signal,
+      sessionId: "home-directory",
+      emit: () => {},
+    });
+    assert.equal(
+      passes,
+      1,
+      "the project writer must not target the shared global root",
+    );
+  });
+});
