@@ -5531,6 +5531,11 @@ impl ProviderService {
                 crate::mcode_config::get_providers()?
             };
             let mut saved = state.db.get_all_providers(app_type.as_str())?;
+            if app_type == AppType::Commandcode {
+                saved.retain(|id, provider| {
+                    !crate::commandcode_config::is_legacy_router(id, &provider.settings_config)
+                });
+            }
             let nicknames = if app_type == AppType::Kimi {
                 crate::services::kimi_oauth::account_nicknames()
             } else {

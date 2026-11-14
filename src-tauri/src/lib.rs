@@ -12,7 +12,6 @@ mod codex_history_migration;
 mod codex_rollout_file;
 mod codex_state_db;
 mod commandcode_config;
-pub mod commandcode_route;
 mod commands;
 mod config;
 mod copilot_config;
@@ -598,6 +597,9 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            if let Err(error) = crate::commandcode_config::retire_legacy_router() {
+                log::warn!("Retiring the old Command Code router failed: {error}");
+            }
             let _ = rustls::crypto::ring::default_provider().install_default();
 
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
@@ -1328,10 +1330,6 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
 
-            // Command Code 本地模型路由：按上次的设置启动（没有启用就是空操作）。
-            if let Some(state) = app.try_state::<AppState>() {
-                crate::commandcode_route::apply(state.db.clone());
-            }
             app.manage(services::kimi_oauth::KimiOAuthManager::default());
 
             // 初始化 SkillService
@@ -1613,12 +1611,6 @@ pub fn run() {
             commands::get_config_status,
             commands::get_claude_code_config_path,
             commands::get_config_dir,
-            commands::commandcode_route::get_commandcode_route_mode,
-            commands::commandcode_route::set_commandcode_route_mode,
-            commands::commandcode_route::list_commandcode_route_options,
-            commands::commandcode_route::list_commandcode_slots,
-            commands::commandcode_route::save_commandcode_slot,
-            commands::commandcode_route::delete_commandcode_slot,
             commands::open_config_folder,
             commands::pick_directory,
             commands::open_external,

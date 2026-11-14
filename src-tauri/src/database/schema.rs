@@ -112,7 +112,7 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-        // 3b. Command Code 模型槽（本地路由：槽位 -> 有序候选）
+        // Historical v27 tables: retain retired slot data for non-destructive upgrades.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS commandcode_slots (
                 id TEXT PRIMARY KEY,
@@ -733,7 +733,7 @@ impl Database {
                         Self::set_user_version(conn, 26)?;
                     }
                     26 => {
-                        // Command Code 本地路由：模型槽 + 有序候选。
+                        // Historical v27 migration; preserve compatibility without starting a router.
                         conn.execute_batch(
                             "CREATE TABLE IF NOT EXISTS commandcode_slots (
                                 id TEXT PRIMARY KEY,

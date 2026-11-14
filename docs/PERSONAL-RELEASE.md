@@ -39,3 +39,31 @@ pnpm build:personal
 ```
 
 保留上游 MIT 许可证与版权声明。第三方下载不会携带本机账号、供应商密钥或个人数据库。
+
+## Command Code 直连与桌面凭据同步
+
+Command Code 只保留原生 BYOK 直连，不再提供 CC Switch 本地路由和模型槽。
+升级时只移除可确认由旧版本生成的本地 `router` 供应商；不改默认模型、会话或真实供应商。
+历史槽位数据库表保留，便于回退，已不参与运行。
+
+本机桌面登录适配的 LaunchAgent 每分钟调用
+`~/.commandcode/desktop/sync-auth.mjs`。脚本的受版本管理副本位于
+`scripts/commandcode-sync-auth.mjs`，可在已有桌面适配环境安装：
+
+```bash
+install -m 600 scripts/commandcode-sync-auth.mjs ~/.commandcode/desktop/sync-auth.mjs
+node ~/.commandcode/desktop/sync-auth.mjs
+```
+
+它同步 API 密钥的新增、修改和删除，并清理改用环境变量/命令引用后残留的本地 API 密钥。
+已管理供应商的标识记录在 `~/.commandcode/desktop/auth-sync-state.json`，不包含密钥。
+只接管实际同步过的 API 凭据，不根据供应商定义删除桌面独有密钥。
+本地登录字段、OAuth 凭据和无关供应商保留；输入损坏时拒绝写入。
+脚本只服务已配置的本地桌面适配，不安装或更改 LaunchAgent、官方登录与会话。
+
+回归检查：
+
+```bash
+node --test tests/scripts/commandcodeSyncAuth.test.mjs
+cargo test --manifest-path src-tauri/Cargo.toml --lib commandcode_config::tests -- --test-threads=1
+```
