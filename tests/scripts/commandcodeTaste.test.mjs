@@ -503,11 +503,16 @@ test("scoped context shares global rules across projects and resolves category l
     const global = path.join(home, ".commandcode/taste"),
       local = path.join(a, ".commandcode/taste");
     await fs.mkdir(global, { recursive: true });
+    await fs.mkdir(path.join(global, "style"));
     await fs.mkdir(local, { recursive: true });
     await fs.mkdir(b);
     await fs.writeFile(
       path.join(global, "taste.md"),
       "# Global\n- GLOBAL_LANGUAGE: 回答用中文。 Confidence: 0.9\nSee [style/taste.md](style/taste.md)\n",
+    );
+    await fs.writeFile(
+      path.join(global, "style/taste.md"),
+      "# Style\n- GLOBAL_CATEGORY_CONTENT: explanations should be concise. Confidence: 0.9\n",
     );
     await fs.writeFile(
       path.join(local, "taste.md"),
@@ -520,10 +525,15 @@ test("scoped context shares global rules across projects and resolves category l
       first.includes("GLOBAL_LANGUAGE") && first.includes("PROJECT_A_ONLY"),
     );
     assert(first.includes(path.join(global, "style/taste.md")));
+    assert(
+      first.includes("GLOBAL_CATEGORY_CONTENT"),
+      "global categories must be included without an out-of-workspace read_file call",
+    );
     assert(first.includes(path.join(local, "style/taste.md")));
     assert(
       second.includes("GLOBAL_LANGUAGE") && !second.includes("PROJECT_A_ONLY"),
     );
+    assert(second.includes("GLOBAL_CATEGORY_CONTENT"));
     assert(
       !(await fs.stat(path.join(b, ".commandcode")).catch(() => false)),
       "reading context must not initialize a project",
