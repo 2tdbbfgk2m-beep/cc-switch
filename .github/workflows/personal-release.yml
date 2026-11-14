@@ -64,7 +64,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm format:check
       - run: pnpm vitest run tests/config/whatsNewEntries.test.ts
-      - run: node --test tests/scripts/commandcodeSyncAuth.test.mjs
+      - run: node --test tests/scripts/commandcode*.test.mjs
+      - run: pnpm exec prettier --check scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs tests/scripts/commandcodeTaste.test.mjs
 
       - name: Build signed updater and draft release
         id: build
@@ -103,4 +104,5 @@ jobs:
           assert.ok(platform.url.endsWith('.app.tar.gz'));
           console.log(`Validated updater manifest for ${manifest.version}`);
           NODE
+          gh release upload "personal-$VERSION" scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs --clobber
           gh release edit "personal-$VERSION" --draft=false --latest

@@ -67,3 +67,55 @@ node ~/.commandcode/desktop/sync-auth.mjs
 node --test tests/scripts/commandcodeSyncAuth.test.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --lib commandcode_config::tests -- --test-threads=1
 ```
+
+## Command Code 桌面版 DS4.1F 偏好学习
+
+这是一项可选的个人 Mod，使用 Command Code 的原生 Mods 生命周期和 `createLearner`，
+不使用 MCP、本地路由或额外守护进程，也不修改 Command Code 应用包。
+只在桌面版的 `localOnly` 环境生效；独立安装的 CLI 保持原行为。
+
+在已有 OpenCode Go 供应商的环境安装：
+
+```bash
+node scripts/install-commandcode-taste.mjs
+```
+
+安装器只添加 `~/.commandcode/mods/cc-switch-taste.mjs`，不会改写模型、登录、MCP、
+供应商、学习开关或会话配置。更新自己的旧 Mod 时留存独占备份；同名外来文件拒绝覆盖。
+桌面版重新加载 Mods 或新建会话后生效，无需重启正在进行的聊天。
+每个个人 Release 同时附带这两个脚本；安装器和 Mod 文件须放在同一目录。
+CC Switch 的应用更新与此可选 Mod 的安装是两个独立步骤。
+
+流程：新一轮对话结束 → 复制本轮新增的用户/助手文本 → 后台调用 Go 的
+`deepseek-v4.1-flash` → 原生 learner 使用受限制的 Taste 文件工具 → 后续对话由原生
+Taste 机制读取偏好。现有 `taste` 工具在此环境下由 Mod 接管，返回“后台待学习”，
+不会在尚未写入时声称已经保存。
+
+接入固定读取 `providers.json` 中的 `cc-switch-open-code-go` 和 `auth.json` 中该项的
+现有 API 密钥，每次请求重读，因此无需复制、硬编码或提交密钥。使用 Chat Completions
+流式工具调用，以及诚实的 User-Agent 和每会话稳定的 `x-opencode-session`。
+供应商或密钥不可用时停止本次学习，不切换到其他服务；失败通过提示展示，不中断主对话。
+
+学习遵守现有用户和项目 Taste 开关；只处理当前新一轮，不导入、回扫或修改旧会话。
+保留原生 Taste 格式和项目目录 `.commandcode/taste/`，不在安装时改写已有偏好。
+工具输出、图片、助手推理和模型生成的 `taste` 指令不作为新偏好证据。
+已知认证秘密会从请求正文中替换，但这不构成通用敏感信息识别保证。
+启用后的新增对话文本及必要的既有 Taste 内容会发送到你的 Go 接口，并消耗其额度。
+
+同一桌面进程对同项目学习串行处理。写入限制在项目 Taste 目录内，拒绝符号链接，
+采用临时文件原子替换；检测到已有文件被外部修改时取消本次写入。
+单次最多六轮工具调用、九十秒；未完成的流式工具调用不会执行。
+如果上游移除所需 Mod API，插件提示加载失败，保留原程序和会话。
+
+停用可使用原有 Taste 学习开关；卸载只删除这个 Mod 文件并重新加载 Mods。
+已有 Taste 文件保留，CLI、账号适配和其他 Mod 不受影响。
+
+回归检查：
+
+```bash
+node --test tests/scripts/commandcode*.test.mjs
+```
+
+本机另外使用桌面版 0.1.61 实际附带的 harness、原生 Mod 发现和隔离虚构会话，
+验证真实 DS4.1F 的创建、更新、下一轮读取、旧历史排除、无关规则保留、一次性要求不写入、
+学习开关和模拟鉴权失败。测试不上传真实会话，也不在真实项目中创建测试偏好。
