@@ -18,5 +18,5 @@ Constraints:
 - [x] Exercise version-gated patch against actual 0.1.61 attachment functions; cover normal attachments, per-file errors, stale drafts and image capacity.
 - [x] Bundle local parser/worker/fonts, test installer on a fake app, verify unsupported/idempotent/failure cases.
 - [x] Run regression checks, isolated original DOCX conversion and independent review. Document installation and limitations.
-- [ ] Push tested changes; build package; install while desktop is idle and verify real attachment selection without sending user content.
-- [ ] Compare configuration/session/source-file hashes and deliver verification record.
+- [x] Push tested changes; build package; install while desktop is idle and verify real attachment selection without sending user content.
+- [x] Compare configuration/session/source-file hashes and deliver verification record.
