@@ -3,6 +3,7 @@ import { isPlainObject } from "@/lib/requestOverrides";
 import {
   COMMANDCODE_DEFAULT_EFFORTS,
   normalizeCommandCodeModel,
+  reviewedCommandCodeGptEfforts,
 } from "@/config/commandcodeReasoning";
 
 // ── Default configs ──────────────────────────────────────────────────
@@ -322,6 +323,7 @@ export function withModelReasoning(
   model: OpenCodeModel,
   enabled: boolean,
   dialect: OpenCodeModelDialect,
+  modelId = "",
 ): OpenCodeModel {
   const next = { ...model };
   if (dialect === "commandcode") {
@@ -331,7 +333,15 @@ export function withModelReasoning(
       reasoningEfforts: enabled
         ? Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length
           ? model.reasoningEfforts
-          : [...COMMANDCODE_DEFAULT_EFFORTS]
+          : model.thinking !== undefined || model.variants !== undefined
+            ? normalizeCommandCodeModel<Partial<OpenCodeModel>>({
+                ...model,
+                reasoning: true,
+                reasoningEfforts: undefined,
+              }).reasoningEfforts
+            : (reviewedCommandCodeGptEfforts(modelId) ?? [
+                ...COMMANDCODE_DEFAULT_EFFORTS,
+              ])
         : [],
     });
   }

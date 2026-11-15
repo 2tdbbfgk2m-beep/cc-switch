@@ -187,3 +187,17 @@ node scripts/install-commandcode-documents.mjs --remove
 node --test tests/scripts/commandcode*.test.mjs
 pnpm vitest run tests/commandcodeDocumentsHook.test.js
 ```
+
+### GPT 推理档位默认值（2026-11-16）
+
+Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`、
+`gpt-6-sol`、`gpt-6-luna`、`gpt-6-astra` 提供原生
+`low / medium / high / xhigh / max` 五档，覆盖预设、新建模型、元数据补全与重新开启推理。
+依据 OpenAI 各型号的模型文档；没有按 `gpt-*` 通配猜测未来型号，也不增加桌面版不支持的档位。
+
+已有显式 `reasoningEfforts`（含三档、单档和空列表）、`reasoning: false`、
+旧 `thinking.effortOptions` 和 `variants` 限制继续优先；补全失败也可离线使用已核实默认值。
+没有全局配置迁移：此前自动生成的三档和用户主动限制成三档无法可靠区分，不能批量扩展。
+修复已有条目时，只在用户明确要求的目标模型上补选“极高”和“最高”，不改变当前选中的推理强度。
+
+相关测试全部可离线运行；真实 harness 验证使用模拟响应，不调用模型 API。

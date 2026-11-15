@@ -5,7 +5,10 @@ import type { KnownModelMetadata } from "@/lib/modelMetadata";
 import type { CodexCatalogModel, OpenClawModel, OpenCodeModel } from "@/types";
 import type { HermesModel } from "@/config/hermesProviderPresets";
 import type { KimiProviderConfig } from "@/config/kimiProviderPresets";
-import { normalizeCommandCodeModel } from "@/config/commandcodeReasoning";
+import {
+  normalizeCommandCodeModel,
+  reviewedCommandCodeGptEfforts,
+} from "@/config/commandcodeReasoning";
 import {
   PI_THINKING_LEVELS,
   type PiThinkingLevelMap,
@@ -103,14 +106,20 @@ export function fillHermesModel(
 export function fillCommandCodeModel(
   model: OpenCodeModel,
   metadata: KnownModelMetadata,
+  modelId = "",
 ): OpenCodeModel {
   const next = fillOpenCodeModel(model, metadata);
   return normalizeCommandCodeModel({
     ...next,
     ...(model.reasoningEfforts === undefined &&
     model.reasoning !== false &&
-    metadata.reasoningEfforts
-      ? { reasoningEfforts: metadata.reasoningEfforts }
+    model.thinking === undefined &&
+    model.variants === undefined &&
+    (reviewedCommandCodeGptEfforts(modelId) ?? metadata.reasoningEfforts)
+      ? {
+          reasoningEfforts:
+            reviewedCommandCodeGptEfforts(modelId) ?? metadata.reasoningEfforts,
+        }
       : {}),
   });
 }

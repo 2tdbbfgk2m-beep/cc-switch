@@ -469,7 +469,7 @@ export function OpenCodeFormFields({
         }
         const filled =
           modelDialect === "commandcode"
-            ? fillCommandCodeModel(model, metadata)
+            ? fillCommandCodeModel(model, metadata, id)
             : fillOpenCodeModel(model, metadata);
         if (!metadataFilledAnything(current[id], filled)) return false;
         commitModels({ ...current, [id]: filled });
@@ -1041,7 +1041,12 @@ export function OpenCodeFormFields({
                           onCheckedChange={(checked) =>
                             updateModel(
                               key,
-                              withModelReasoning(model, checked, modelDialect),
+                              withModelReasoning(
+                                model,
+                                checked,
+                                modelDialect,
+                                key,
+                              ),
                             )
                           }
                         />

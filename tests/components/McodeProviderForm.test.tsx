@@ -59,6 +59,62 @@ const original = {
 };
 
 describe("McodeProviderForm", () => {
+  it("creates the OpenAI Command Code preset with all reviewed GPT efforts", async () => {
+    const submit = vi.fn();
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI API" }));
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "fictional-official-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    const saved = JSON.parse(submit.mock.calls[0][0].settingsConfig);
+    expect(saved.models["gpt-6.1-sol"].reasoningEfforts).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+  it("keeps an existing GPT provider's explicit three-tier restriction on save", async () => {
+    const submit = vi.fn();
+    const model = {
+      name: "Limited GPT",
+      reasoning: true,
+      reasoningEfforts: ["low", "medium", "high"],
+    };
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        providerId="limited"
+        initialData={{
+          name: "Limited",
+          settingsConfig: {
+            ...original,
+            api: "openai-responses",
+            models: { "gpt-6.1-sol": model },
+          },
+        }}
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    const saved = JSON.parse(submit.mock.calls[0][0].settingsConfig);
+    expect(saved.models["gpt-6.1-sol"]).toEqual(model);
+    expect(saved.options).toEqual(original.options);
+  });
+
   it("creates a new Command Code provider with native selectable efforts", async () => {
     const submit = vi.fn();
     render(

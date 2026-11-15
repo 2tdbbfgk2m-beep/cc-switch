@@ -8,6 +8,7 @@ import {
   COMMANDCODE_EFFORTS,
   commandCodeEfforts,
   normalizeCommandCodeModel,
+  reviewedCommandCodeGptEfforts,
 } from "./commandcodeReasoning";
 
 const sources = [...piProviderPresets, ...mcodeOnlyPiPresets];
@@ -45,7 +46,9 @@ export const commandCodeProviderPresets = mcodeProviderPresets.map((preset) => {
                       : null
                     : map[level],
                 )
-              : undefined;
+              : model.reasoning
+                ? reviewedCommandCodeGptEfforts(id)
+                : undefined;
           return [
             id,
             normalizeCommandCodeModel({
@@ -88,7 +91,8 @@ function reviewedCommandCodeModel(
     );
   const known = exact
     ? exact.model
-    : candidates.length &&
+    : !reviewedCommandCodeGptEfforts(id) &&
+        candidates.length &&
         candidates.every(
           (row) =>
             JSON.stringify(row.model.reasoningEfforts) ===
@@ -102,7 +106,13 @@ function reviewedCommandCodeModel(
         reasoning: known.reasoning,
         reasoningEfforts: [...(known.reasoningEfforts as string[])],
       }
-    : undefined;
+    : reviewedCommandCodeGptEfforts(id)
+      ? {
+          name: id,
+          reasoning: true,
+          reasoningEfforts: reviewedCommandCodeGptEfforts(id),
+        }
+      : undefined;
 }
 
 export function commandCodeModelDefaults(

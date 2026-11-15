@@ -80,6 +80,57 @@ const expandFirstModel = () => {
 };
 
 describe("OpenCodeFormFields", () => {
+  it("keeps all GPT tiers when asynchronous metadata reports only three", async () => {
+    let releaseMetadata!: () => void;
+    const metadataGate = new Promise<void>((resolve) => {
+      releaseMetadata = resolve;
+    });
+    server.use(
+      http.post("http://tauri.local/fetch_models_dev", async () => {
+        await metadataGate;
+        return HttpResponse.json(
+          JSON.stringify({
+            openai: {
+              api: "https://api.openai.com/v1",
+              models: {
+                "gpt-6.1-sol": {
+                  reasoning: true,
+                  reasoning_options: [
+                    { type: "effort", values: ["low", "medium", "high"] },
+                  ],
+                  limit: { context: 123456 },
+                },
+              },
+            },
+          }),
+        );
+      }),
+    );
+    vi.mocked(fetchModelsForConfig).mockResolvedValue([
+      { id: "gpt-6.1-sol", ownedBy: "openai" },
+    ]);
+    const { props } = renderOpenCodeForm({
+      models: {},
+      modelDialect: "commandcode",
+      baseUrl: "https://api.openai.com/v1",
+    });
+    fireEvent.click(screen.getByRole("button", { name: FETCH }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: "gpt-6.1-sol" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: APPLY }));
+    releaseMetadata();
+    await waitFor(() =>
+      expect(props.onModelsChange).toHaveBeenLastCalledWith({
+        "gpt-6.1-sol": expect.objectContaining({
+          reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+          limit: expect.objectContaining({ context: 123456 }),
+        }),
+      }),
+    );
+  });
+
   it("fills a new model's native ladder after a display-name-only edit", () => {
     const { props, rerender } = renderOpenCodeForm({
       modelDialect: "commandcode",
