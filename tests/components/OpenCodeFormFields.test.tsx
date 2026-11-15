@@ -80,6 +80,32 @@ const expandFirstModel = () => {
 };
 
 describe("OpenCodeFormFields", () => {
+  it("fills a new model's native ladder after a display-name-only edit", () => {
+    const { props, rerender } = renderOpenCodeForm({
+      modelDialect: "commandcode",
+      models: {},
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add manually" }));
+    const added = vi.mocked(props.onModelsChange).mock.calls.at(-1)![0];
+    const key = Object.keys(added)[0];
+    rerender(
+      <FormShell>
+        <OpenCodeFormFields
+          {...props}
+          models={{ [key]: { ...added[key], name: "My label" } }}
+        />
+      </FormShell>,
+    );
+    const id = screen.getByDisplayValue(key);
+    fireEvent.change(id, { target: { value: "claude-sonnet-5-5" } });
+    fireEvent.blur(id);
+    expect(props.onModelsChange).toHaveBeenLastCalledWith({
+      "claude-sonnet-5-5": expect.objectContaining({
+        name: "My label",
+        reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+      }),
+    });
+  });
   it("preserves opt-out and name when an existing model-* ID is renamed", () => {
     const model = {
       name: "My custom label",

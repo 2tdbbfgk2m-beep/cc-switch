@@ -452,9 +452,12 @@ export function OpenCodeFormFields({
         const current = modelsRef.current;
         if (!Object.prototype.hasOwnProperty.call(current, id)) return false;
         let model = current[id];
+        const auto = autoModelMetadata.current.get(id);
         if (
           modelDialect === "commandcode" &&
-          autoModelMetadata.current.get(id) === model &&
+          auto &&
+          model.reasoning === auto.reasoning &&
+          model.reasoningEfforts === auto.reasoningEfforts &&
           (metadata.reasoningEfforts !== undefined ||
             metadata.reasoning === false)
         ) {
@@ -518,9 +521,13 @@ export function OpenCodeFormFields({
   // Update model ID (key)
   const handleModelIdChange = (oldKey: string, newKey: string) => {
     if (oldKey === newKey || !newKey.trim()) return;
-    const untouched =
+    const auto = autoModelMetadata.current.get(oldKey);
+    const untouched = Boolean(
       modelDialect === "commandcode" &&
-      autoModelMetadata.current.get(oldKey) === models[oldKey];
+        auto &&
+        models[oldKey].reasoning === auto.reasoning &&
+        models[oldKey].reasoningEfforts === auto.reasoningEfforts,
+    );
     const newModels: Record<string, OpenCodeModel> = {};
     for (const [k, v] of Object.entries(models)) {
       if (k === oldKey) {
