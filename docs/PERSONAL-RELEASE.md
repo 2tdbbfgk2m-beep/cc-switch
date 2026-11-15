@@ -147,3 +147,43 @@ node --test tests/scripts/commandcode*.test.mjs
 验证真实 DS4.1F 的全局/项目分流、跨项目读取和隔离、项目例外、更新旧规则、下一轮读取、
 旧历史排除、无关规则保留、一次性要求不写入、学习开关和模拟鉴权失败。
 测试不上传真实会话，也不在真实项目中创建测试偏好。
+
+## Command Code 的 DOCX/PDF 附件（可选）
+
+文档附件补丁 1.0.0 适配 Command Code **0.1.61 的指定构建**，不是 MCP，也不依赖订阅或外部解析服务。
+在桌面版附件读取层本地解析，再交给原生附件与消息流程；解析本身不上传文档，发送消息时内容随主模型请求发送。
+不改配置、登录、供应商、Taste、MCP 或历史会话。普通文本、图片和目录沿用原生处理。
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build:commandcode-documents
+node scripts/install-commandcode-documents.mjs --dry-run
+# 先退出 Command Code，再安装：
+node scripts/install-commandcode-documents.mjs
+```
+
+发布包 `commandcode-documents-1.0.0.tar.gz` 已包含解析器；解压后在该目录直接运行同一安装命令，无需安装 npm 依赖。
+安装器验证完整 renderer 哈希和解析包清单，不认识的桌面版拒绝修改。
+备份放在 `~/.commandcode/desktop-backups/documents-0.1.61-*`，记录补丁版本与文件哈希；重复安装同包不重复修改。
+仅添加 renderer 模块与修改附件派发，再为原本已 ad-hoc 签名的应用重建外层签名，并验证嵌套签名。
+不改 main/preload，不放宽 CSP、不启用 Worker。签名失败自动恢复 renderer、可执行文件和签名资源封印。
+Command Code 上游更新可能覆盖补丁；新版本需要重新检查适配，勿强行覆盖。
+
+- DOCX：正文、列表、链接、表格转为 Markdown；合并格保留列位置。文内图片仅显示占位说明，不提取图片内容；页眉、页脚、批注与版式不保证保留。
+- PDF：逐页提取文本；没有文本的页面转为图片，交给原生图片附件，需要支持图片的模型。没有调用 OCR 服务；带文本的页面不额外提取页面内图表，复杂排版阅读顺序不保证一致。
+- 每份文件最多 20 MB、PDF 最多 100 页、提取文本最多 500 KB、DOCX 解压最多 40 MB/5000 项；加密、损坏、超限会提示失败，不截断伪装成功。
+- 每条消息仍最多 8 张图片，扫描 PDF 页图计入此限制；同一批扫描页必须全部添加成功。大文档请拆分。
+
+卸载（先退出桌面版）：
+
+```bash
+node scripts/install-commandcode-documents.mjs --remove
+```
+
+卸载验证备份和当前补丁归属，只恢复本补丁替换的应用文件，保留所有用户配置和会话。
+回归测试包含真实 DOCX 表格、PDF 文本和 JPEG 扫描页渲染、草稿切换、图片容量、原子添加，以及安装失败回滚：
+
+```bash
+node --test tests/scripts/commandcode*.test.mjs
+pnpm vitest run tests/commandcodeDocumentsHook.test.js
+```

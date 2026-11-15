@@ -15,7 +15,9 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest watch",
     "dev:personal": "pnpm tauri dev --config src-tauri/tauri.personal.conf.json",
-    "build:personal": "pnpm tauri build --config src-tauri/tauri.personal.conf.json"
+    "build:personal": "pnpm tauri build --config src-tauri/tauri.personal.conf.json",
+    "build:commandcode-documents": "node scripts/build-commandcode-documents.mjs",
+    "install:commandcode-documents": "node scripts/install-commandcode-documents.mjs"
   },
   "keywords": [],
   "author": "Jason Young",
@@ -34,11 +36,16 @@
     "code-inspector-plugin": "^1.3.3",
     "cross-fetch": "^4.1.0",
     "jsdom": "^25.0.0",
+    "jszip": "3.10.2",
+    "mammoth": "1.13.0",
     "msw": "^2.11.6",
+    "pdfjs-dist": "6.5.438",
     "postcss": "^8.4.49",
     "prettier": "^3.6.2",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
+    "turndown": "7.2.5",
+    "turndown-plugin-gfm": "1.0.2",
     "typescript": "^5.3.0",
     "vite": "^7.3.0",
     "vitest": "^2.0.5"

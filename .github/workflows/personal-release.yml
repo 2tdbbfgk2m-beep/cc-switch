@@ -63,9 +63,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm format:check
-      - run: pnpm vitest run tests/config/whatsNewEntries.test.ts tests/config/commandcodeReasoning.test.ts tests/components/McodeProviderForm.test.tsx tests/components/OpenCodeFormFields.test.tsx tests/components/modelMetadataFill.test.ts
+      - run: pnpm vitest run tests/config/whatsNewEntries.test.ts tests/config/commandcodeReasoning.test.ts tests/components/McodeProviderForm.test.tsx tests/components/OpenCodeFormFields.test.tsx tests/components/modelMetadataFill.test.ts tests/commandcodeDocumentsHook.test.js
       - run: node --test tests/scripts/commandcode*.test.mjs
       - run: pnpm exec prettier --check scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs tests/scripts/commandcodeTaste.test.mjs
+
+      - run: pnpm build:commandcode-documents
+      - run: pnpm exec prettier --check scripts/commandcode-documents scripts/*commandcode-documents.mjs tests/scripts/commandcodeDocument*.test.mjs tests/scripts/helpers/documentFixtures.mjs tests/commandcodeDocumentsHook.test.js
 
       - name: Build signed updater and draft release
         id: build
@@ -104,5 +107,5 @@ jobs:
           assert.ok(platform.url.endsWith('.app.tar.gz'));
           console.log(`Validated updater manifest for ${manifest.version}`);
           NODE
-          gh release upload "personal-$VERSION" scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs --clobber
+          gh release upload "personal-$VERSION" scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs release/commandcode-documents-1.0.0.tar.gz --clobber
           gh release edit "personal-$VERSION" --draft=false --latest
