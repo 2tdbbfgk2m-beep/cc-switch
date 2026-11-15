@@ -42,6 +42,12 @@ pnpm build:personal
 
 ## Command Code 直连与桌面凭据同步
 
+Command Code 的推理档位使用原生 `models.<id>.reasoningEfforts` 数组保存，
+可选值为 `low`、`medium`、`high`、`xhigh`、`max`。空数组明确关闭档位；
+表单开关与数组同步，不再把 MiniMax Code 的 `thinking.effortOptions` 当作原生声明。
+导入已知模型时填充精确档位；未知自定义模型初始提供原生默认三档，可在模型详情中调整或关闭。
+已有原生数组（含空数组）优先，更新不改变模型选择、会话或凭据。
+
 Command Code 只保留原生 BYOK 直连，不再提供 CC Switch 本地路由和模型槽。
 升级时只移除可确认由旧版本生成的本地 `router` 供应商；不改默认模型、会话或真实供应商。
 历史槽位数据库表保留，便于回退，已不参与运行。

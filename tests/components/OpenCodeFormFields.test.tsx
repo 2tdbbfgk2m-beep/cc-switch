@@ -80,6 +80,57 @@ const expandFirstModel = () => {
 };
 
 describe("OpenCodeFormFields", () => {
+  it("preserves opt-out and name when an existing model-* ID is renamed", () => {
+    const model = {
+      name: "My custom label",
+      reasoning: false,
+      reasoningEfforts: [],
+    };
+    const { props } = renderOpenCodeForm({
+      modelDialect: "commandcode",
+      models: { "model-custom": model },
+    });
+    const id = screen.getByDisplayValue("model-custom");
+    fireEvent.change(id, { target: { value: "claude-opus-5-5" } });
+    fireEvent.blur(id);
+    expect(props.onModelsChange).toHaveBeenLastCalledWith({
+      "claude-opus-5-5": model,
+    });
+  });
+  it("adds a Command Code model with its exact native metadata ladder", async () => {
+    vi.mocked(fetchModelsForConfig).mockResolvedValue([
+      { id: "fictional-reasoner", ownedBy: "test" },
+    ]);
+    const { props } = renderOpenCodeForm({
+      models: {},
+      modelDialect: "commandcode",
+      presetModelSources: () => [
+        {
+          baseUrl: "https://api.example.com/v1",
+          models: new Map([
+            [
+              "fictional-reasoner",
+              { reasoning: true, reasoningEfforts: ["high", "max"] },
+            ],
+          ]),
+        },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: FETCH }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: "fictional-reasoner" }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: APPLY }));
+    await waitFor(() =>
+      expect(props.onModelsChange).toHaveBeenLastCalledWith({
+        "fictional-reasoner": expect.objectContaining({
+          reasoning: true,
+          reasoningEfforts: ["high", "max"],
+        }),
+      }),
+    );
+  });
   it("opens the picker after fetching and adds the checked models", async () => {
     vi.mocked(fetchModelsForConfig).mockResolvedValue([
       { id: "vendor/model-a", ownedBy: "vendor" },
@@ -892,6 +943,37 @@ describe("OpenCodeFormFields", () => {
         name: "Kimi K2",
         modalities: { input: ["text"], output: ["text"] },
       },
+    });
+  });
+
+  it("edits the exact Command Code native ladder and disables it atomically", () => {
+    const onModelsChange = vi.fn();
+    const model = { name: "Example", reasoningEfforts: ["high", "max"] };
+    renderOpenCodeForm({
+      modelDialect: "commandcode",
+      onModelsChange,
+      models: { "kimi-k2": model },
+    });
+    expandFirstModel();
+    expect(screen.getByLabelText("pi.form.reasoning")).toBeChecked();
+    fireEvent.click(
+      screen.getByRole("button", { name: "pi.form.thinkingLevelsLabel" }),
+    );
+    expect(screen.getByLabelText("pi.form.thinkingLevels.max")).toBeChecked();
+    expect(
+      screen.queryByLabelText("pi.form.thinkingLevels.off"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("pi.form.thinkingLevels.low"));
+    expect(onModelsChange).toHaveBeenLastCalledWith({
+      "kimi-k2": {
+        ...model,
+        reasoning: true,
+        reasoningEfforts: ["low", "high", "max"],
+      },
+    });
+    fireEvent.click(screen.getByLabelText("pi.form.reasoning"));
+    expect(onModelsChange).toHaveBeenLastCalledWith({
+      "kimi-k2": { ...model, reasoning: false, reasoningEfforts: [] },
     });
   });
 

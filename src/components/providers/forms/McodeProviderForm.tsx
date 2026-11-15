@@ -13,11 +13,18 @@ import type { ProviderFormData } from "@/lib/schemas/provider";
 import type { OpenCodeModel, OpenCodeProviderOptions } from "@/types";
 import { mcodeProviderPresets } from "@/config/mcodeProviderPresets";
 import {
+  commandCodeProviderPresets,
+  normalizeCommandCodeConfig,
+} from "@/config/commandCodeProviderPresets";
+import {
   DSH_ACCOUNT_PRESET_ID,
   dshAccountPreset,
   dshProviderPresets,
 } from "@/config/dshProviderPresets";
-import { mcodePresetModelSources } from "@/config/presetModelMetadata";
+import {
+  mcodePresetModelSources,
+  commandCodePresetModelSources,
+} from "@/config/presetModelMetadata";
 import { BasicFormFields } from "./BasicFormFields";
 import { OpenCodeFormFields } from "./OpenCodeFormFields";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
@@ -94,7 +101,12 @@ export function McodeProviderForm({
   onManageAuthAccounts,
 }: ProviderFormProps) {
   const { t } = useTranslation();
-  const presets = appId === "dsh" ? dshProviderPresets : mcodeProviderPresets;
+  const presets =
+    appId === "dsh"
+      ? dshProviderPresets
+      : appId === "commandcode"
+        ? commandCodeProviderPresets
+        : mcodeProviderPresets;
   const presetEntries = [
     // DeepSeek 账号和 Kimi 一样放在「账号登录」组：选中后去授权中心登录，不新建供应商
     ...(appId === "dsh"
@@ -107,13 +119,15 @@ export function McodeProviderForm({
   ];
   const isDarkMode = useDarkMode();
   const [config, setConfig] = useState<McodeConfig>(
-    initialData?.settingsConfig ?? {
-      kind: "custom",
-      enabled: true,
-      api: "anthropic-messages",
-      options: {},
-      models: {},
-    },
+    appId === "commandcode" && initialData
+      ? normalizeCommandCodeConfig(initialData.settingsConfig as McodeConfig)
+      : (initialData?.settingsConfig ?? {
+          kind: "custom",
+          enabled: true,
+          api: "anthropic-messages",
+          options: {},
+          models: {},
+        }),
   );
   const isNative = appId === "mcode";
   const renderText = (next: McodeConfig, key: string) =>
@@ -278,7 +292,9 @@ export function McodeProviderForm({
               providerKey: isEdit ? providerId : providerKey,
               presetCategory: category,
               settingsConfig: JSON.stringify({
-                ...config,
+                ...(appId === "commandcode"
+                  ? normalizeCommandCodeConfig(config)
+                  : config),
                 name: identity.name.trim(),
                 kind: "custom",
                 options,
@@ -345,9 +361,19 @@ export function McodeProviderForm({
             }
           />
           <OpenCodeFormFields
-            modelDialect={appId === "dsh" ? "dsh" : "opencode"}
+            modelDialect={
+              appId === "dsh"
+                ? "dsh"
+                : appId === "commandcode"
+                  ? "commandcode"
+                  : "opencode"
+            }
             apiFormats={API_FORMATS}
-            presetModelSources={mcodePresetModelSources}
+            presetModelSources={
+              appId === "commandcode"
+                ? commandCodePresetModelSources
+                : mcodePresetModelSources
+            }
             npm={config.api ?? "anthropic-messages"}
             onNpmChange={(api) => update({ ...config, api })}
             apiKey={config.options?.apiKey ?? ""}

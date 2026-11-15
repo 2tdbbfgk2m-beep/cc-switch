@@ -52,7 +52,16 @@ import { useCommittableRef } from "@/hooks/useLatestRef";
 import { useModelMetadataFill } from "@/hooks/useModelMetadataFill";
 import type { PresetModelSource } from "@/lib/modelMetadata";
 import { opencodePresetModelSources } from "@/config/presetModelMetadata";
-import { fillOpenCodeModel, metadataFilledAnything } from "./modelMetadataFill";
+import {
+  fillOpenCodeModel,
+  fillCommandCodeModel,
+  metadataFilledAnything,
+} from "./modelMetadataFill";
+import {
+  COMMANDCODE_EFFORTS,
+  normalizeCommandCodeModel,
+} from "@/config/commandcodeReasoning";
+import { commandCodeModelDefaults } from "@/config/commandCodeProviderPresets";
 
 /**
  * Model ID input with local state to prevent focus loss.
@@ -186,10 +195,12 @@ function ReasoningEffortsField({
   modelKey,
   efforts,
   onChange,
+  levels = PI_THINKING_LEVELS,
 }: {
   modelKey: string;
   efforts: Record<string, string | null>;
   onChange: (efforts: Record<string, string | null>) => void;
+  levels?: readonly string[];
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -197,7 +208,7 @@ function ReasoningEffortsField({
 
   const toggle = (level: string, offered: boolean) => {
     const next: Record<string, string | null> = {};
-    for (const known of PI_THINKING_LEVELS) {
+    for (const known of levels) {
       if (known === level) {
         if (offered)
           next[known] =
@@ -233,7 +244,7 @@ function ReasoningEffortsField({
       </div>
       {expanded && (
         <div className="overflow-hidden rounded-lg border border-border/70 bg-surface">
-          {PI_THINKING_LEVELS.map((level) => {
+          {levels.map((level) => {
             const offered = level in efforts;
             const value = efforts[level];
             const id = `opencode-${modelKey}-effort-${level}`;
@@ -416,15 +427,19 @@ export function OpenCodeFormFields({
   // Add a new model entry
   const handleAddModel = () => {
     const newKey = `model-${Date.now()}`;
-    onModelsChange({
-      ...models,
-      [newKey]: { name: "" },
-    });
+    const model =
+      modelDialect === "commandcode"
+        ? { ...commandCodeModelDefaults(newKey, baseUrl), name: "" }
+        : { name: "" };
+    if (modelDialect === "commandcode")
+      autoModelMetadata.current.set(newKey, model);
+    commitModels({ ...models, [newKey]: model });
   };
 
   // 选中拉取到的模型时补上它已知的 limit 和模态（只补空着的）。
   // 补全可能晚到，要用最新的列表和回调提交。
   const [modelsRef, commitModels] = useCommittableRef(models, onModelsChange);
+  const autoModelMetadata = useRef(new Map<string, OpenCodeModel>());
   const fillModelMetadata = useModelMetadataFill({
     baseUrl,
     presets: presetModelSources,
@@ -436,7 +451,23 @@ export function OpenCodeFormFields({
       (metadata) => {
         const current = modelsRef.current;
         if (!Object.prototype.hasOwnProperty.call(current, id)) return false;
-        const filled = fillOpenCodeModel(current[id], metadata);
+        let model = current[id];
+        if (
+          modelDialect === "commandcode" &&
+          autoModelMetadata.current.get(id) === model &&
+          (metadata.reasoningEfforts !== undefined ||
+            metadata.reasoning === false)
+        ) {
+          model = {
+            ...model,
+            reasoning: metadata.reasoning,
+            reasoningEfforts: undefined,
+          };
+        }
+        const filled =
+          modelDialect === "commandcode"
+            ? fillCommandCodeModel(model, metadata)
+            : fillOpenCodeModel(model, metadata);
         if (!metadataFilledAnything(current[id], filled)) return false;
         commitModels({ ...current, [id]: filled });
         return true;
@@ -450,8 +481,15 @@ export function OpenCodeFormFields({
     const additions = Object.fromEntries(
       add
         .filter((id) => !Object.prototype.hasOwnProperty.call(next, id))
-        .map((id) => [id, { name: id }]),
+        .map((id) => [
+          id,
+          modelDialect === "commandcode"
+            ? commandCodeModelDefaults(id, baseUrl)
+            : { name: id },
+        ]),
     );
+    for (const [id, model] of Object.entries(additions))
+      autoModelMetadata.current.set(id, model);
     commitModels({ ...next, ...additions });
     if (remove.length > 0) {
       setExpandedModels((prev) => {
@@ -480,15 +518,29 @@ export function OpenCodeFormFields({
   // Update model ID (key)
   const handleModelIdChange = (oldKey: string, newKey: string) => {
     if (oldKey === newKey || !newKey.trim()) return;
+    const untouched =
+      modelDialect === "commandcode" &&
+      autoModelMetadata.current.get(oldKey) === models[oldKey];
     const newModels: Record<string, OpenCodeModel> = {};
     for (const [k, v] of Object.entries(models)) {
       if (k === oldKey) {
-        newModels[newKey] = v;
+        newModels[newKey] = untouched
+          ? {
+              ...v,
+              ...commandCodeModelDefaults(newKey, baseUrl),
+              name: v.name || newKey,
+            }
+          : v;
       } else {
         newModels[k] = v;
       }
     }
     commitModels(newModels);
+    autoModelMetadata.current.delete(oldKey);
+    if (untouched) {
+      autoModelMetadata.current.set(newKey, newModels[newKey]);
+      fillModelMetadataFor(newKey, true);
+    }
     // Update expanded set if this model was expanded
     if (expandedModels.has(oldKey)) {
       setExpandedModels((prev) => {
@@ -1050,6 +1102,29 @@ export function OpenCodeFormFields({
                           efforts={model.reasoningEfforts}
                           onChange={(reasoningEfforts) =>
                             updateModel(key, { ...model, reasoningEfforts })
+                          }
+                        />
+                      )}
+
+                    {modelDialect === "commandcode" &&
+                      modelSupportsReasoning(model, modelDialect) && (
+                        <ReasoningEffortsField
+                          modelKey={key}
+                          levels={COMMANDCODE_EFFORTS}
+                          efforts={Object.fromEntries(
+                            (
+                              normalizeCommandCodeModel(model)
+                                .reasoningEfforts as string[]
+                            ).map((level) => [level, level]),
+                          )}
+                          onChange={(efforts) =>
+                            updateModel(
+                              key,
+                              normalizeCommandCodeModel({
+                                ...model,
+                                reasoningEfforts: Object.keys(efforts),
+                              }),
+                            )
                           }
                         />
                       )}

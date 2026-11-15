@@ -13,6 +13,7 @@ import { codexProviderPresets } from "./codexProviderPresets";
 import { hermesProviderPresets } from "./hermesProviderPresets";
 import { kimiProviderPresets } from "./kimiProviderPresets";
 import { mcodeProviderPresets } from "./mcodeProviderPresets";
+import { commandCodeProviderPresets } from "./commandCodeProviderPresets";
 import { openclawProviderPresets } from "./openclawProviderPresets";
 import { opencodeProviderPresets } from "./opencodeProviderPresets";
 import { piProviderPresets } from "./piProviderPresets";
@@ -104,6 +105,7 @@ function openCodeModelMetadata(model: OpenCodeModel): KnownModelMetadata {
     maxOutputTokens: positiveInteger(model.limit?.output),
     reasoning:
       typeof model.reasoning === "boolean" ? model.reasoning : undefined,
+    reasoningEfforts: stringList(model.reasoningEfforts),
     inputModalities: stringList(modalities?.input),
     outputModalities: stringList(modalities?.output),
   };
@@ -124,6 +126,16 @@ export const mcodePresetModelSources = lazy(() =>
     buildSources(
       [preset.settingsConfig.options.baseURL],
       Object.entries(preset.settingsConfig.models ?? {}),
+      openCodeModelMetadata,
+    ),
+  ),
+);
+
+export const commandCodePresetModelSources = lazy(() =>
+  commandCodeProviderPresets.flatMap((preset) =>
+    buildSources(
+      [preset.settingsConfig.options.baseURL],
+      Object.entries(preset.settingsConfig.models),
       openCodeModelMetadata,
     ),
   ),

@@ -59,6 +59,60 @@ const original = {
 };
 
 describe("McodeProviderForm", () => {
+  it("creates a new Command Code provider with native selectable efforts", async () => {
+    const submit = vi.fn();
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "MiniMax" }));
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "fictional-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    const saved = JSON.parse(submit.mock.calls[0][0].settingsConfig);
+    expect(submit.mock.calls[0][0].providerKey).toBe("cc-switch-mini-max");
+    expect(saved.models["MiniMax-M3"].reasoningEfforts.length).toBeGreaterThan(
+      0,
+    );
+    expect(saved.options.apiKey).toBe("fictional-key");
+  });
+  it("saves Command Code legacy effort options as a native array without changing credentials", async () => {
+    const submit = vi.fn();
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        providerId="existing"
+        initialData={{
+          name: "Existing",
+          settingsConfig: {
+            ...original,
+            models: {
+              model: {
+                name: "Example",
+                reasoning: true,
+                thinking: { effortOptions: ["low", "high", "max"] },
+              },
+            },
+          },
+        }}
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    const saved = JSON.parse(submit.mock.calls[0][0].settingsConfig);
+    expect(saved.models.model.reasoningEfforts).toEqual(["low", "high", "max"]);
+    expect(saved.options).toEqual(original.options);
+    expect(saved.futureSetting).toEqual(original.futureSetting);
+  });
   it.each([true, false])(
     "edits native fields while preserving model options and unknown settings (explicit API: %s)",
     async (explicitApi) => {

@@ -1,5 +1,9 @@
 import type { OpenCodeModel, OpenCodeProviderConfig } from "@/types";
 import { isPlainObject } from "@/lib/requestOverrides";
+import {
+  COMMANDCODE_DEFAULT_EFFORTS,
+  normalizeCommandCodeModel,
+} from "@/config/commandcodeReasoning";
 
 // ── Default configs ──────────────────────────────────────────────────
 
@@ -244,7 +248,7 @@ export function isKnownModelKey(key: string): boolean {
  * 模型字段的方言：OpenCode 和 MiniMax Code 用 OpenCode 的模型结构；DeepSeek Harness
  * 走 pi-ai 适配器，多认 `reasoningEfforts`（档位 → 上游值）和 `compat`。
  */
-export type OpenCodeModelDialect = "opencode" | "dsh";
+export type OpenCodeModelDialect = "opencode" | "dsh" | "commandcode";
 
 type Modalities = { input: string[]; output?: string[] };
 
@@ -286,7 +290,8 @@ function hasDedicatedControl(
       return isModalities(value);
     case "reasoningEfforts":
       return (
-        dialect === "dsh" && (value === false || isReasoningEffortMap(value))
+        (dialect === "commandcode" && Array.isArray(value)) ||
+        (dialect === "dsh" && (value === false || isReasoningEffortMap(value)))
       );
     case "compat":
       return dialect === "dsh" && isPlainObject(value);
@@ -299,6 +304,8 @@ export function modelSupportsReasoning(
   model: OpenCodeModel,
   dialect: OpenCodeModelDialect,
 ): boolean {
+  if (dialect === "commandcode")
+    return normalizeCommandCodeModel(model).reasoning === true;
   if (typeof model.reasoning === "boolean") return model.reasoning;
   return dialect === "dsh" && isReasoningEffortMap(model.reasoningEfforts);
 }
@@ -317,6 +324,17 @@ export function withModelReasoning(
   dialect: OpenCodeModelDialect,
 ): OpenCodeModel {
   const next = { ...model };
+  if (dialect === "commandcode") {
+    return normalizeCommandCodeModel({
+      ...next,
+      reasoning: enabled,
+      reasoningEfforts: enabled
+        ? Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length
+          ? model.reasoningEfforts
+          : [...COMMANDCODE_DEFAULT_EFFORTS]
+        : [],
+    });
+  }
   if (dialect === "dsh") {
     // DSH 只看 reasoningEfforts：false 表示不思考，对象是提供的档位
     next.reasoning = enabled;
