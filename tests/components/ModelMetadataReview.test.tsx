@@ -77,3 +77,19 @@ it("keeps native-client capability checks read-only", () => {
   ).not.toBeInTheDocument();
   expect(screen.getByText("4096")).toBeInTheDocument();
 });
+
+it("checks numeric model IDs instead of treating them as draft placeholders", () => {
+  render(
+    <ModelMetadataReview
+      dialect="commandcode"
+      baseUrl="https://numbers.example/v1"
+      presets={() => []}
+      models={[
+        { key: "real-row", id: "model-123", value: { name: "Real model" } },
+      ]}
+      onFill={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "检查模型配置" }));
+  expect(screen.getByRole("region", { name: "model-123" })).toBeInTheDocument();
+});

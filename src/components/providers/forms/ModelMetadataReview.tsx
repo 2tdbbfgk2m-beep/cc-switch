@@ -64,7 +64,7 @@ export function ModelMetadataReview({
   const sources = open ? withSharedPresetModelSources(presets()) : [];
   const rows = open
     ? models
-        .filter((row) => row.id.trim() && !/^model-\d+$/.test(row.id))
+        .filter((row) => row.id.trim())
         .map((row) => {
           const known = resolveModelMetadata(row.id, {
             baseUrl: row.baseUrl ?? baseUrl,
@@ -138,7 +138,7 @@ export function ModelMetadataReview({
             })}
           </p>
         )}
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        <div className="min-h-0 max-h-[55vh] space-y-3 overflow-y-auto">
           {rows.map((row) => (
             <section
               key={row.key}
