@@ -85,9 +85,11 @@ describe("OpenCodeFormFields", () => {
     const metadataGate = new Promise<void>((resolve) => {
       releaseMetadata = resolve;
     });
+    let metadataReturned = false;
     server.use(
       http.post("http://tauri.local/fetch_models_dev", async () => {
         await metadataGate;
+        metadataReturned = true;
         return HttpResponse.json(
           JSON.stringify({
             openai: {
@@ -121,11 +123,12 @@ describe("OpenCodeFormFields", () => {
     );
     fireEvent.click(within(dialog).getByRole("button", { name: APPLY }));
     releaseMetadata();
+    await waitFor(() => expect(metadataReturned).toBe(true));
     await waitFor(() =>
       expect(props.onModelsChange).toHaveBeenLastCalledWith({
         "gpt-6.1-sol": expect.objectContaining({
           reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
-          limit: expect.objectContaining({ context: 123456 }),
+          limit: expect.objectContaining({ context: 272000 }),
         }),
       }),
     );
@@ -1098,4 +1101,18 @@ describe("OpenCodeFormFields", () => {
       "mimo-v2.6-pro": { ...model, reasoning: false, reasoningEfforts: false },
     });
   });
+});
+
+it("rejects a duplicate model ID without replacing a configured row", () => {
+  const { props } = renderOpenCodeForm({
+    models: {
+      "model-a": { name: "A", limit: { context: 4096 } },
+      "model-b": { name: "B" },
+    },
+  });
+  const input = screen.getByDisplayValue("model-a");
+  fireEvent.change(input, { target: { value: "model-b" } });
+  fireEvent.blur(input);
+  expect(input).toHaveValue("model-a");
+  expect(props.onModelsChange).not.toHaveBeenCalled();
 });

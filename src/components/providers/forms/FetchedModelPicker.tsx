@@ -1,3 +1,4 @@
+import { withSharedPresetModelSources } from "@/config/presetModelMetadata";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -172,27 +173,66 @@ function FetchedModelPickerBody({
   const presets = metadataSource?.presets;
   const allIdsKey = allIds.join("\n");
   const summaries = useMemo(() => {
-    const result = new Map<string, string>();
+    const result = new Map<string, { text: string; detail: string }>();
     if (baseUrl === undefined) return result;
     const presetSources = presets?.();
     for (const id of allIdsKey.split("\n")) {
       const metadata = resolveModelMetadata(id, {
         baseUrl,
-        presets: presetSources,
+        presets: withSharedPresetModelSources(presetSources ?? []),
         modelsDev,
+        diagnostics: true,
       });
-      if (!metadata) continue;
+      if (!metadata) {
+        result.set(id, {
+          text: t("providerForm.modelReview.unknown", {
+            defaultValue: "能力未知",
+          }),
+          detail: t("providerForm.modelReview.unknownHint", {
+            defaultValue: "未找到可确认的模型能力，请手动核对",
+          }),
+        });
+        continue;
+      }
       const parts: string[] = [];
       if (metadata.contextWindow) {
         parts.push(formatContextWindow(metadata.contextWindow));
       }
       if (metadata.reasoning || metadata.reasoningEfforts?.length) {
-        parts.push(t("providerForm.modelPicker.reasoning"));
+        parts.push(
+          metadata.reasoningEfforts?.length
+            ? t("providerForm.modelReview.effortCount", {
+                count: metadata.reasoningEfforts.length,
+                defaultValue: "推理 {{count}} 档",
+              })
+            : t("providerForm.modelPicker.reasoning"),
+        );
       }
       if (metadata.inputModalities?.includes("image")) {
         parts.push(t("providerForm.modelPicker.image"));
       }
-      if (parts.length > 0) result.set(id, parts.join(" · "));
+      result.set(id, {
+        text:
+          parts.join(" · ") ||
+          t("providerForm.modelReview.unknown", { defaultValue: "能力未知" }),
+        detail: [
+          metadata.maxOutputTokens
+            ? t("providerForm.modelReview.outputLimit", {
+                tokens: formatContextWindow(metadata.maxOutputTokens),
+                defaultValue: "输出上限 {{tokens}}",
+              })
+            : "",
+          metadata.reasoningEfforts?.join(", "),
+          metadata.sources.join(" + "),
+          metadata.conflicts?.length
+            ? t("providerForm.modelReview.sourceConflict", {
+                defaultValue: "资料来源存在差异，按同供应商优先取值",
+              })
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      });
     }
     return result;
   }, [allIdsKey, baseUrl, modelsDev, presets, t]);
@@ -233,8 +273,11 @@ function FetchedModelPickerBody({
           {id}
         </span>
         {summaries.has(id) && (
-          <span className="shrink-0 text-caption tabular-nums text-fg-2">
-            {summaries.get(id)}
+          <span
+            className="shrink-0 text-caption tabular-nums text-fg-2"
+            title={summaries.get(id)?.detail}
+          >
+            {summaries.get(id)?.text}
           </span>
         )}
         {showOwner && (

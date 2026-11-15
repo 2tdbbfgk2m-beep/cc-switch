@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
@@ -89,6 +90,7 @@ import type { KnownModelMetadata } from "@/lib/modelMetadata";
 import { piPresetModelSources } from "@/config/presetModelMetadata";
 import {
   metadataFilledAnything,
+  boundedModelOutput,
   type PiProviderProtocol,
   piPresetThinkingFor,
   piSendsReasoningEffort,
@@ -149,8 +151,10 @@ interface PiModelDraft {
   hasName: boolean;
   reasoning: boolean;
   hasReasoning: boolean;
+  autoReasoning?: boolean;
   input: unknown;
   hasInput: boolean;
+  autoInput?: boolean;
   contextWindow: string;
   hasContextWindow: boolean;
   maxTokens: string;
@@ -370,16 +374,21 @@ function fillPiModelDraft(
     next.hasContextWindow = true;
   }
   if (!model.maxTokens.trim() && metadata.maxOutputTokens) {
-    next.maxTokens = String(metadata.maxOutputTokens);
+    next.maxTokens = String(
+      boundedModelOutput(metadata.maxOutputTokens, next.contextWindow),
+    );
     next.hasMaxTokens = true;
   }
-  if (metadata.reasoning === true && !model.reasoning) {
+  if (
+    metadata.reasoning === true &&
+    (!model.hasReasoning || model.autoReasoning)
+  ) {
     next.reasoning = true;
     next.hasReasoning = true;
   }
   if (
     metadata.inputModalities?.includes("image") &&
-    !supportsImageInput(model.input)
+    (!model.hasInput || model.autoInput)
   ) {
     next.input = withImageInput(model.input, true);
     next.hasInput = true;
@@ -417,8 +426,10 @@ function newModel(): PiModelDraft {
     hasName: true,
     reasoning: false,
     hasReasoning: true,
+    autoReasoning: true,
     input: ["text"],
     hasInput: true,
+    autoInput: true,
     contextWindow: "",
     hasContextWindow: true,
     maxTokens: "",
@@ -1027,7 +1038,16 @@ export function PiProviderForm({
   ) => {
     commitModels(
       modelsRef.current.map((model) =>
-        model.key === key ? { ...model, ...update } : model,
+        model.key === key
+          ? {
+              ...model,
+              ...update,
+              ...(update.reasoning !== undefined
+                ? { autoReasoning: false }
+                : {}),
+              ...(update.input !== undefined ? { autoInput: false } : {}),
+            }
+          : model,
       ),
     );
   };
@@ -1061,6 +1081,7 @@ export function PiProviderForm({
     baseUrl,
     presets: piPresetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: JSON.stringify([api, providerKey, providerCompat]),
   });
 
   // 补上模型已知的窗口、输出上限、推理、图片输入和思考档位。补全可能晚到：
@@ -1068,12 +1089,18 @@ export function PiProviderForm({
   const fillModelMetadataFor = (key: string, id: string, silent?: boolean) => {
     const row = modelsRef.current.find((model) => model.key === key);
     // 模型单独指向别的地址时，按它实际请求的地址查参数。
-    const rowBaseUrl = row && piModelProtocol(row, protocolRef.current).baseUrl;
+    const rowProtocol = row && piModelProtocol(row, protocolRef.current);
+    const rowBaseUrl = rowProtocol?.baseUrl;
     fillModelMetadata(
       id,
       (metadata) => {
         const current = modelsRef.current.find((model) => model.key === key);
-        if (current?.id !== id) return false;
+        if (
+          current?.id !== id ||
+          JSON.stringify(piModelProtocol(current, protocolRef.current)) !==
+            JSON.stringify(rowProtocol)
+        )
+          return false;
         const filled = fillPiModelDraft(
           current,
           metadata,
@@ -1748,6 +1775,19 @@ export function PiProviderForm({
                   {t("opencode.models", { defaultValue: "模型配置" })}
                 </FormLabel>
                 <div className="flex gap-1">
+                  <ModelMetadataReview
+                    dialect={isOmp ? "omp" : "pi"}
+                    baseUrl={baseUrl}
+                    presets={piPresetModelSources}
+                    models={models.map((model) => ({
+                      key: model.key,
+                      id: model.id,
+                      value: piModelPreview(model),
+                      baseUrl: piModelProtocol(model, protocolRef.current)
+                        .baseUrl,
+                    }))}
+                    onFill={fillModelMetadataFor}
+                  />
                   <FetchedModelPicker
                     models={fetchedModels}
                     configuredModelIds={models.map((model) => model.id)}
@@ -1824,6 +1864,19 @@ export function PiProviderForm({
                             <Input
                               id={`pi-model-id-${model.key}`}
                               value={model.id}
+                              onFocus={(event) => {
+                                event.currentTarget.dataset.initialModelId =
+                                  event.currentTarget.value;
+                              }}
+                              onBlur={(event) => {
+                                if (
+                                  event.currentTarget.dataset.initialModelId ===
+                                  event.currentTarget.value
+                                )
+                                  return;
+                                const id = model.id.trim();
+                                if (id) selectFetchedModelId(model.key, id);
+                              }}
                               onChange={(event) =>
                                 changeModelId(model.key, event.target.value)
                               }

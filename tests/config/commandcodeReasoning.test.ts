@@ -83,13 +83,13 @@ describe("Command Code native reasoning", () => {
     ).toEqual(["high"]);
   });
 
-  it("offers a native ladder immediately for new known and custom models", () => {
+  it("offers known native ladders without inventing unknown model capabilities", () => {
     expect(
       commandCodeModelDefaults("claude-opus-5-5").reasoningEfforts,
     ).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(
       commandCodeModelDefaults("fictional-custom-model").reasoningEfforts,
-    ).toEqual(["low", "medium", "high"]);
+    ).toBeUndefined();
   });
 
   it("uses the desktop Claude 5.5 ladder even without a Pi preset", () => {
@@ -204,7 +204,7 @@ describe("reviewed GPT reasoning defaults", () => {
       ).toEqual(saved.reasoningEfforts);
     }
   });
-  it("uses reviewed GPT tiers over incomplete remote metadata only for unset tiers", () => {
+  it("honors resolved endpoint tiers and uses the shared catalog for offline defaults", () => {
     expect(
       fillCommandCodeModel(
         { name: "Custom name" },
@@ -214,7 +214,7 @@ describe("reviewed GPT reasoning defaults", () => {
     ).toMatchObject({
       name: "Custom name",
       reasoning: true,
-      reasoningEfforts: full,
+      reasoningEfforts: ["low", "medium", "high"],
     });
     expect(
       normalizeCommandCodeConfig({
@@ -273,6 +273,6 @@ describe("reviewed GPT reasoning defaults", () => {
   it("does not guess capabilities for unknown future GPT IDs", () => {
     expect(
       commandCodeModelDefaults("gpt-future-unverified").reasoningEfforts,
-    ).toEqual(["low", "medium", "high"]);
+    ).toBeUndefined();
   });
 });

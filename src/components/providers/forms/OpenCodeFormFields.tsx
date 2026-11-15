@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { FormLabel } from "@/components/ui/form";
@@ -54,6 +55,8 @@ import type { PresetModelSource } from "@/lib/modelMetadata";
 import { opencodePresetModelSources } from "@/config/presetModelMetadata";
 import {
   fillOpenCodeModel,
+  fillMcodeModel,
+  fillDshModel,
   fillCommandCodeModel,
   metadataFilledAnything,
 } from "./modelMetadataFill";
@@ -75,7 +78,7 @@ function ModelIdInput({
   placeholder,
 }: {
   modelId: string;
-  onChange: (newId: string) => void;
+  onChange: (newId: string) => boolean | void;
   placeholder?: string;
 }) {
   const [localValue, setLocalValue] = useState(modelId);
@@ -90,10 +93,12 @@ function ModelIdInput({
       value={localValue}
       onValueChange={setLocalValue}
       onBlur={(event) => {
-        const nextValue = event.currentTarget.value;
-        if (nextValue !== modelId && nextValue.trim()) {
-          onChange(nextValue);
-        }
+        const nextValue = event.currentTarget.value.trim();
+        if (
+          !nextValue ||
+          (nextValue !== modelId && onChange(nextValue) === false)
+        )
+          setLocalValue(modelId);
       }}
       placeholder={placeholder}
       className="flex-1"
@@ -287,6 +292,7 @@ interface OpenCodeFormFieldsProps {
   allowBuiltinDefaults?: boolean;
   /** 模型字段方言：DeepSeek Harness 多出思考档位和接口兼容性。 */
   modelDialect?: OpenCodeModelDialect;
+  providerCompat?: Record<string, unknown>;
   /** 选中拉取到的模型时补参数所查的预设（MiniMax Code 传自己的）。 */
   presetModelSources?: () => readonly PresetModelSource[];
   apiFormats?: ReadonlyArray<{ value: string; label: string }>;
@@ -323,6 +329,7 @@ interface OpenCodeFormFieldsProps {
 export function OpenCodeFormFields({
   allowBuiltinDefaults = false,
   modelDialect = "opencode",
+  providerCompat,
   presetModelSources = opencodePresetModelSources,
   apiFormats = opencodeNpmPackages,
   npm,
@@ -444,6 +451,7 @@ export function OpenCodeFormFields({
     baseUrl,
     presets: presetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: JSON.stringify([npm, providerCompat, apiKey, headersKey]),
   });
   const fillModelMetadataFor = (id: string, silent?: boolean) =>
     fillModelMetadata(
@@ -470,7 +478,15 @@ export function OpenCodeFormFields({
         const filled =
           modelDialect === "commandcode"
             ? fillCommandCodeModel(model, metadata, id)
-            : fillOpenCodeModel(model, metadata);
+            : modelDialect === "dsh"
+              ? fillDshModel(model, metadata, {
+                  api: npm,
+                  baseUrl,
+                  compat: providerCompat,
+                })
+              : modelDialect === "mcode"
+                ? fillMcodeModel(model, metadata)
+                : fillOpenCodeModel(model, metadata);
         if (!metadataFilledAnything(current[id], filled)) return false;
         commitModels({ ...current, [id]: filled });
         return true;
@@ -520,7 +536,12 @@ export function OpenCodeFormFields({
 
   // Update model ID (key)
   const handleModelIdChange = (oldKey: string, newKey: string) => {
-    if (oldKey === newKey || !newKey.trim()) return;
+    if (
+      oldKey === newKey ||
+      !newKey.trim() ||
+      Object.prototype.hasOwnProperty.call(models, newKey)
+    )
+      return false;
     const auto = autoModelMetadata.current.get(oldKey);
     const untouched = Boolean(
       modelDialect === "commandcode" &&
@@ -544,10 +565,8 @@ export function OpenCodeFormFields({
     }
     commitModels(newModels);
     autoModelMetadata.current.delete(oldKey);
-    if (untouched) {
-      autoModelMetadata.current.set(newKey, newModels[newKey]);
-      fillModelMetadataFor(newKey, true);
-    }
+    if (untouched) autoModelMetadata.current.set(newKey, newModels[newKey]);
+    fillModelMetadataFor(newKey, true);
     // Update expanded set if this model was expanded
     if (expandedModels.has(oldKey)) {
       setExpandedModels((prev) => {
@@ -924,6 +943,17 @@ export function OpenCodeFormFields({
             {t("opencode.models", { defaultValue: "Models" })}
           </FormLabel>
           <div className="flex gap-1">
+            <ModelMetadataReview
+              dialect={modelDialect}
+              baseUrl={baseUrl}
+              presets={presetModelSources}
+              models={Object.entries(models).map(([id, value]) => ({
+                key: id,
+                id,
+                value,
+              }))}
+              onFill={(_key, id) => fillModelMetadataFor(id)}
+            />
             <FetchedModelPicker
               models={fetchedModels}
               configuredModelIds={Object.keys(models)}

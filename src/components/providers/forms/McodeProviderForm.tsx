@@ -1,3 +1,4 @@
+import { isPlainObject } from "@/lib/requestOverrides";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -23,6 +24,7 @@ import {
 } from "@/config/dshProviderPresets";
 import {
   mcodePresetModelSources,
+  dshPresetModelSources,
   commandCodePresetModelSources,
 } from "@/config/presetModelMetadata";
 import { BasicFormFields } from "./BasicFormFields";
@@ -366,13 +368,18 @@ export function McodeProviderForm({
                 ? "dsh"
                 : appId === "commandcode"
                   ? "commandcode"
-                  : "opencode"
+                  : "mcode"
+            }
+            providerCompat={
+              isPlainObject(config.compat) ? config.compat : undefined
             }
             apiFormats={API_FORMATS}
             presetModelSources={
               appId === "commandcode"
                 ? commandCodePresetModelSources
-                : mcodePresetModelSources
+                : appId === "dsh"
+                  ? dshPresetModelSources
+                  : mcodePresetModelSources
             }
             npm={config.api ?? "anthropic-messages"}
             onNpmChange={(api) => update({ ...config, api })}

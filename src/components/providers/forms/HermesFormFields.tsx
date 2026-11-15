@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useTranslation } from "react-i18next";
 import { useState, useRef, useCallback, useMemo } from "react";
 import { FormLabel } from "@/components/ui/form";
@@ -198,6 +199,7 @@ export function HermesFormFields({
     baseUrl,
     presets: hermesPresetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: apiMode,
   });
   const handleSelectFetchedModel = (index: number, id: string) => {
     commitModels(
@@ -298,6 +300,20 @@ export function HermesFormFields({
               )}
               {t("providerForm.fetchModels")}
             </Button>
+            <ModelMetadataReview
+              dialect="hermes"
+              baseUrl={baseUrl}
+              presets={hermesPresetModelSources}
+              models={models.map((value, index) => ({
+                key: modelKeys[index],
+                id: value.id,
+                value,
+              }))}
+              onFill={(key, id) => {
+                const at = modelKeysRef.current.indexOf(key);
+                if (at >= 0) handleSelectFetchedModel(at, id);
+              }}
+            />
             <Button
               type="button"
               variant="outline"
@@ -358,6 +374,19 @@ export function HermesFormFields({
                       <ImeSafeInput
                         id={`hermes-model-id-${modelKey}`}
                         value={model.id}
+                        onFocus={(event) => {
+                          event.currentTarget.dataset.initialModelId =
+                            event.currentTarget.value;
+                        }}
+                        onBlur={(event) => {
+                          if (
+                            event.currentTarget.dataset.initialModelId ===
+                            event.currentTarget.value
+                          )
+                            return;
+                          if (model.id.trim())
+                            handleSelectFetchedModel(index, model.id.trim());
+                        }}
                         onValueChange={(value) =>
                           handleModelChange(index, "id", value)
                         }

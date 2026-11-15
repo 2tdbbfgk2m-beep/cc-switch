@@ -141,3 +141,51 @@ describe("useModelMetadataFill", () => {
     expect(toastInfo).not.toHaveBeenCalled();
   });
 });
+
+describe("metadata request identity", () => {
+  it("discards delayed data after endpoint or protocol changes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post("http://tauri.local/fetch_models_dev", async () => {
+        await gate;
+        return HttpResponse.json(
+          JSON.stringify({
+            example: {
+              api: "https://api.example.com/v1",
+              models: { "model-x": { limit: { output: 64000 } } },
+            },
+          }),
+        );
+      }),
+    );
+    const client = createTestQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result, rerender } = renderHook(
+      ({ identity }) =>
+        useModelMetadataFill({
+          baseUrl: "https://api.example.com/v1",
+          presets,
+          prefetch: false,
+          identity,
+        }),
+      { wrapper, initialProps: { identity: "openai-completions" } },
+    );
+    const applied: unknown[] = [];
+    result.current("model-x", (info) => {
+      applied.push(info);
+      return false;
+    });
+    rerender({ identity: "anthropic-messages" });
+    release();
+    await waitFor(() =>
+      expect(client.getQueryData(["models-dev"])).toBeDefined(),
+    ).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(applied).toHaveLength(1);
+  });
+});

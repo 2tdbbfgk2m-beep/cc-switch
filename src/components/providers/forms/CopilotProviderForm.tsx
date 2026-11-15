@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -489,6 +490,7 @@ export function CopilotProviderForm({
     baseUrl,
     presets: piPresetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: providerType,
   });
   const fillModelMetadataFor = (modelId: string, silent?: boolean) =>
     fillModelMetadata(
@@ -712,6 +714,17 @@ export function CopilotProviderForm({
           </HelpTip>
         </div>
         <div className="flex gap-1">
+          <ModelMetadataReview
+            dialect="copilot"
+            baseUrl={baseUrl}
+            presets={piPresetModelSources}
+            models={connection.models.map((value, index) => ({
+              key: String(index),
+              id: value.id,
+              value,
+            }))}
+            onFill={(_key, id) => fillModelMetadataFor(id)}
+          />
           <FetchedModelPicker
             models={fetchedModels}
             configuredModelIds={modelIds.filter(Boolean)}
@@ -778,6 +791,22 @@ export function CopilotProviderForm({
                     <Input
                       id={`copilot-model-${key}`}
                       value={model.id}
+                      onFocus={(event) => {
+                        event.currentTarget.dataset.initialModelId =
+                          event.currentTarget.value;
+                      }}
+                      onBlur={(event) => {
+                        if (
+                          event.currentTarget.dataset.initialModelId ===
+                          event.currentTarget.value
+                        )
+                          return;
+                        const id = model.id.trim();
+                        if (id) {
+                          updateModel(index, { id });
+                          fillModelMetadataFor(id);
+                        }
+                      }}
                       onChange={(e) =>
                         updateModel(index, { id: e.target.value })
                       }

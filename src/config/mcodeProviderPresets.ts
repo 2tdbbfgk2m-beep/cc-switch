@@ -20,6 +20,7 @@ export interface McodeProviderPreset
     kind: string;
     enabled: boolean;
     api: string;
+    compat?: Record<string, unknown>;
     options: {
       baseURL: string;
       apiKey: string;

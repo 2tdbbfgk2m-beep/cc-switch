@@ -7,6 +7,11 @@ import {
   type KnownModelMetadata,
   type PresetModelSource,
 } from "@/lib/modelMetadata";
+import {
+  modelMetadataFromConfig,
+  type ModelDialect,
+} from "@/lib/modelCapabilities";
+import { dshProviderPresets } from "./dshProviderPresets";
 import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
 import type { OpenCodeModel } from "@/types";
 import { codexProviderPresets } from "./codexProviderPresets";
@@ -95,28 +100,15 @@ export const hermesPresetModelSources = lazy(() =>
   ),
 );
 
-function openCodeModelMetadata(model: OpenCodeModel): KnownModelMetadata {
-  const modalities =
-    model.modalities && typeof model.modalities === "object"
-      ? (model.modalities as { input?: unknown; output?: unknown })
-      : undefined;
-  return {
-    contextWindow: positiveInteger(model.limit?.context),
-    maxOutputTokens: positiveInteger(model.limit?.output),
-    reasoning:
-      typeof model.reasoning === "boolean" ? model.reasoning : undefined,
-    reasoningEfforts: stringList(model.reasoningEfforts),
-    inputModalities: stringList(modalities?.input),
-    outputModalities: stringList(modalities?.output),
-  };
-}
+const nativeMetadata = (dialect: ModelDialect) => (model: OpenCodeModel) =>
+  modelMetadataFromConfig(model, dialect);
 
 export const opencodePresetModelSources = lazy(() =>
   opencodeProviderPresets.flatMap((preset) =>
     buildSources(
       [preset.settingsConfig.options?.baseURL],
       Object.entries(preset.settingsConfig.models ?? {}),
-      openCodeModelMetadata,
+      nativeMetadata("opencode"),
     ),
   ),
 );
@@ -126,7 +118,7 @@ export const mcodePresetModelSources = lazy(() =>
     buildSources(
       [preset.settingsConfig.options.baseURL],
       Object.entries(preset.settingsConfig.models ?? {}),
-      openCodeModelMetadata,
+      nativeMetadata("mcode"),
     ),
   ),
 );
@@ -136,7 +128,37 @@ export const commandCodePresetModelSources = lazy(() =>
     buildSources(
       [preset.settingsConfig.options.baseURL],
       Object.entries(preset.settingsConfig.models),
-      openCodeModelMetadata,
+      nativeMetadata("commandcode"),
+    ),
+  ),
+);
+
+export const dshPresetModelSources = lazy(() =>
+  dshProviderPresets.flatMap((preset) =>
+    buildSources(
+      [preset.settingsConfig.options.baseURL],
+      Object.entries(preset.settingsConfig.models),
+      (model) => ({
+        ...nativeMetadata("dsh")(model),
+        ...(model.reasoningEfforts &&
+        typeof model.reasoningEfforts === "object" &&
+        !Array.isArray(model.reasoningEfforts)
+          ? {
+              dshThinking: {
+                reasoningEfforts: model.reasoningEfforts as Record<
+                  string,
+                  string | null
+                >,
+                api: preset.settingsConfig.api,
+                baseUrl: preset.settingsConfig.options.baseURL,
+                compat: {
+                  ...preset.settingsConfig.compat,
+                  ...(model.compat as Record<string, unknown> | undefined),
+                },
+              },
+            }
+          : {}),
+      }),
     ),
   ),
 );
@@ -179,3 +201,38 @@ export const kimiPresetModelSources = lazy(() =>
     ),
   ),
 );
+
+/** Share endpoint-specific limits/modalities across apps, never protocol-dependent thinking maps. */
+const sharedPresetModelSources = lazy(() =>
+  [
+    codexPresetModelSources,
+    openclawPresetModelSources,
+    hermesPresetModelSources,
+    opencodePresetModelSources,
+    mcodePresetModelSources,
+    commandCodePresetModelSources,
+    piPresetModelSources,
+    kimiPresetModelSources,
+    dshPresetModelSources,
+  ].flatMap((sources) =>
+    sources().map((source) => ({
+      baseUrl: source.baseUrl,
+      models: new Map(
+        [...source.models].map(([id, model]) => [
+          id,
+          Object.fromEntries(
+            Object.entries(model).filter(
+              ([key]) =>
+                !["reasoningEfforts", "piThinking", "dshThinking"].includes(
+                  key,
+                ),
+            ),
+          ) as KnownModelMetadata,
+        ]),
+      ),
+    })),
+  ),
+);
+export const withSharedPresetModelSources = (
+  sources: readonly PresetModelSource[],
+) => [...sources, ...sharedPresetModelSources()];

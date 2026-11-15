@@ -378,6 +378,7 @@ describe("resolveModelMetadata", () => {
           }),
         ],
         modelsDev,
+        includeCatalog: false,
       }),
     ).toBeNull();
   });
@@ -415,9 +416,12 @@ describe("resolveModelMetadata", () => {
           }),
         ],
       }),
-    ).toEqual({ contextWindow: 500000, sources: ["preset"] });
+    ).toMatchObject({ contextWindow: 500000, sources: ["preset", "catalog"] });
     expect(
-      resolveModelMetadata("glm-5", { baseUrl: "https://api.z.ai/v1" }),
+      resolveModelMetadata("glm-5", {
+        baseUrl: "https://api.z.ai/v1",
+        includeCatalog: false,
+      }),
     ).toBeNull();
   });
 

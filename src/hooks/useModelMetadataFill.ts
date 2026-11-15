@@ -1,3 +1,4 @@
+import { withSharedPresetModelSources } from "@/config/presetModelMetadata";
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -30,10 +31,13 @@ export function useModelMetadataFill({
   baseUrl,
   presets,
   prefetch,
+  identity = "",
 }: {
   baseUrl: string;
   presets: () => readonly PresetModelSource[];
   prefetch: boolean;
+  /** Protocol/account identity: a late response must not apply to a different configuration. */
+  identity?: string;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -41,6 +45,14 @@ export function useModelMetadataFill({
   useEffect(() => {
     if (prefetch) void queryClient.prefetchQuery(modelsDevQueryOptions);
   }, [prefetch, queryClient]);
+
+  const active = useRef<object>({});
+  useEffect(() => {
+    active.current = {};
+    return () => {
+      active.current = {};
+    };
+  }, [baseUrl, identity, presets]);
 
   const baseUrlRef = useLatestRef(baseUrl);
   const presetsRef = useLatestRef(presets);
@@ -62,18 +74,24 @@ export function useModelMetadataFill({
         const models = [...batch.models];
         const fromPreset = batch.sources.has("preset");
         const fromModelsDev = batch.sources.has("models-dev");
+        const fromCatalog = batch.sources.has("catalog");
         batch.models.clear();
         batch.sources.clear();
-        const source =
-          fromPreset && fromModelsDev
-            ? t("providerForm.modelMetadataSourceBoth", {
-                defaultValue: "预设和 models.dev",
+        const source = [
+          fromPreset
+            ? t("providerForm.modelMetadataSourcePreset", {
+                defaultValue: "预设",
               })
-            : fromPreset
-              ? t("providerForm.modelMetadataSourcePreset", {
-                  defaultValue: "预设",
-                })
-              : "models.dev";
+            : "",
+          fromModelsDev ? "models.dev" : "",
+          fromCatalog
+            ? t("providerForm.modelMetadataSourceCatalog", {
+                defaultValue: "内置模型目录",
+              })
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" + ");
         toast.info(
           models.length === 1
             ? t("providerForm.modelMetadataFilled", {
@@ -105,26 +123,36 @@ export function useModelMetadataFill({
         silent?: boolean;
       },
     ): void => {
-      const resolve = (modelsDev?: ModelsDevResponse) =>
+      const request = active.current;
+      const endpoint = options?.baseUrl || baseUrlRef.current;
+      const presetSources = presetsRef.current();
+      const resolve = (modelsDev?: ModelsDevResponse, includeCatalog = true) =>
         resolveModelMetadata(modelId, {
-          baseUrl: options?.baseUrl || baseUrlRef.current,
-          presets: presetsRef.current(),
+          baseUrl: endpoint,
+          presets: withSharedPresetModelSources(presetSources ?? []),
           modelsDev,
+          includeCatalog,
         });
       const run = (metadata: ResolvedModelMetadata | null) => {
-        if (metadata && apply(metadata) && !options?.silent) {
+        if (
+          request === active.current &&
+          metadata &&
+          apply(metadata) &&
+          !options?.silent
+        ) {
           notify(modelId, metadata.sources);
         }
       };
 
       const cached = queryClient.getQueryData(modelsDevQueryOptions.queryKey);
-      run(resolve(cached));
+      run(resolve(cached, !!cached));
       if (cached) return;
       queryClient
         .fetchQuery(modelsDevQueryOptions)
         .then((data) => run(resolve(data)))
         .catch(() => {
-          // 离线或 models.dev 不可用：保持预设值补过的样子。
+          // Only apply offline fallback after lookup fails, so it cannot occupy a field before better endpoint data arrives.
+          run(resolve());
         });
     },
     [baseUrlRef, notify, presetsRef, queryClient],

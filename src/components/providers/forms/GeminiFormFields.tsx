@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FormLabel } from "@/components/ui/form";
@@ -191,6 +192,14 @@ export function GeminiFormFields({
                 </HelpTip>
               )}
             </div>
+            <ModelMetadataReview
+              dialect="native"
+              baseUrl={baseUrl}
+              presets={() => []}
+              models={
+                model.trim() ? [{ key: "main", id: model, value: {} }] : []
+              }
+            />
             <Button
               type="button"
               variant="outline"

@@ -10,21 +10,8 @@ export const COMMANDCODE_EFFORTS = [
 ] as const;
 export const COMMANDCODE_DEFAULT_EFFORTS = ["low", "medium", "high"];
 
-// Reviewed 2026-11-16 against developers.openai.com/api/docs/models/<id>.
-// Command Code exposes the five effort tiers below; optional "none" is separate.
-const REVIEWED_GPT_IDS = new Set([
-  "gpt-6.1-sol",
-  "gpt-6.1-terra",
-  "gpt-6-sol",
-  "gpt-6-luna",
-  "gpt-6-astra",
-]);
-export function reviewedCommandCodeGptEfforts(
-  id: string,
-): string[] | undefined {
-  const bare = id.toLowerCase().replace(/^openai\//, "");
-  return REVIEWED_GPT_IDS.has(bare) ? [...COMMANDCODE_EFFORTS] : undefined;
-}
+// Backwards-compatible export; the reviewed catalog is shared by every application.
+export { reviewedModelEfforts as reviewedCommandCodeGptEfforts } from "./modelCapabilityCatalog";
 
 export function commandCodeEfforts(values: unknown): string[] {
   return Array.isArray(values)

@@ -1524,7 +1524,9 @@ describe("PiProviderForm", () => {
     const user = userEvent.setup();
     server.use(
       http.post(`${TAURI_ENDPOINT}/fetch_models_for_config`, () =>
-        HttpResponse.json([{ id: "gpt-5.6-sol", ownedBy: "proxy" }]),
+        HttpResponse.json([
+          { id: "fictional-unknown-model", ownedBy: "proxy" },
+        ]),
       ),
     );
 
@@ -1563,11 +1565,13 @@ describe("PiProviderForm", () => {
       within(modelIdInput.parentElement as HTMLElement).getByRole("button"),
     );
     await user.click(
-      await screen.findByRole("option", { name: "gpt-5.6-sol" }),
+      await screen.findByRole("option", { name: "fictional-unknown-model" }),
     );
 
     const modelNameInput = screen.getByLabelText("pi.form.modelName");
-    await waitFor(() => expect(modelNameInput).toHaveValue("gpt-5.6-sol"));
+    await waitFor(() =>
+      expect(modelNameInput).toHaveValue("fictional-unknown-model"),
+    );
     await user.click(
       screen.getByRole("button", { name: "展开或收起模型详情" }),
     );

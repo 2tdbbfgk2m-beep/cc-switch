@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   fillCodexCatalogModel,
+  fillCommandCodeModel,
+  fillDshModel,
+  fillMcodeModel,
   fillHermesModel,
   fillKimiModel,
   fillOpenClawModel,
@@ -65,10 +68,8 @@ describe("fillCodexCatalogModel", () => {
 });
 
 describe("fillOpenClawModel", () => {
-  it("fills numbers and cost, and upgrades the default text-only input", () => {
-    expect(
-      fillOpenClawModel({ id: "m", name: "m", input: ["text"] }, metadata),
-    ).toEqual({
+  it("fills numbers, cost and missing input", () => {
+    expect(fillOpenClawModel({ id: "m", name: "m" }, metadata)).toEqual({
       id: "m",
       name: "m",
       contextWindow: 262144,
@@ -115,9 +116,9 @@ describe("fillHermesModel", () => {
   });
 
   it("only fills supports_vision towards true and keeps an explicit false", () => {
-    expect(
-      fillHermesModel({ id: "m" }, { inputModalities: ["text"] }),
-    ).toEqual({ id: "m" });
+    expect(fillHermesModel({ id: "m" }, { inputModalities: ["text"] })).toEqual(
+      { id: "m" },
+    );
     expect(
       fillHermesModel({ id: "m", supports_vision: false }, metadata),
     ).toEqual({ id: "m", context_length: 262144, supports_vision: false });
@@ -155,8 +156,8 @@ describe("fillOpenCodeModel", () => {
       ),
     ).toEqual({
       name: "m",
-      limit: { context: 1000, output: 32768 },
-      modalities: { input: ["text"] },
+      limit: { context: 1000, output: 1000 },
+      modalities: { input: ["text"], output: ["text"] },
       reasoning: true,
     });
   });
@@ -172,7 +173,7 @@ describe("fillKimiModel", () => {
       fillKimiModel(
         { model: "m", max_context_size: 1, capabilities: ["tool_use"] },
         metadata,
-        { replaceContext: true },
+        { replaceContext: true, replaceCapabilities: true },
       ),
     ).toEqual({
       model: "m",
@@ -332,4 +333,132 @@ describe("piPresetThinkingFor", () => {
       }),
     ).toBeNull();
   });
+});
+
+describe("shared explicit restriction protection", () => {
+  it("keeps explicit off and text-only settings in OpenClaw", () => {
+    expect(
+      fillOpenClawModel(
+        { id: "m", name: "m", reasoning: false, input: ["text"] },
+        metadata,
+      ),
+    ).toMatchObject({ reasoning: false, input: ["text"] });
+  });
+  it("keeps an explicit empty Codex ladder", () => {
+    expect(
+      fillCodexCatalogModel(
+        { model: "m", reasoningLevels: [] },
+        metadata,
+        CODEX_LEVELS,
+      ).reasoningLevels,
+    ).toEqual([]);
+  });
+  it("fills each harness's native effort format for any model ID", () => {
+    const info = { reasoning: true, reasoningEfforts: ["low", "max"] };
+    expect(
+      fillCommandCodeModel({ name: "future-model" }, info).reasoningEfforts,
+    ).toEqual(["low", "max"]);
+    expect(fillMcodeModel({ name: "future-model" }, info).thinking).toEqual({
+      effortOptions: ["low", "max"],
+    });
+    expect(
+      fillDshModel({ name: "future-model" }, info).reasoningEfforts,
+    ).toEqual({ low: "low", max: "max" });
+    expect(
+      fillDshModel({ name: "m", reasoningEfforts: false }, info)
+        .reasoningEfforts,
+    ).toBe(false);
+    expect(
+      fillMcodeModel({ name: "m", thinking: { effortOptions: [] } }, info)
+        .thinking,
+    ).toEqual({ effortOptions: [] });
+  });
+});
+
+it("fits an automatically filled output limit inside the user's context limit", () => {
+  expect(
+    fillOpenCodeModel(
+      { name: "m", limit: { context: 4096 } },
+      { maxOutputTokens: 8192 },
+    ).limit,
+  ).toEqual({ context: 4096, output: 4096 });
+  expect(
+    fillOpenClawModel(
+      { id: "m", name: "m", contextWindow: 4096 },
+      { maxOutputTokens: 8192 },
+    ).maxTokens,
+  ).toBe(4096);
+  expect(
+    fillOpenCodeModel(
+      { name: "m", limit: { context: 4096, output: 9999 } },
+      { maxOutputTokens: 8192 },
+    ).limit?.output,
+  ).toBe(9999);
+});
+
+it("preserves DSH's native off/null and wire-value mappings under the matching protocol", () => {
+  const info = {
+    reasoning: true,
+    reasoningEfforts: ["off", "high"],
+    dshThinking: {
+      api: "openai-responses",
+      baseUrl: "https://map.example/v1",
+      reasoningEfforts: { off: null, high: "xhigh" },
+    },
+  };
+  expect(
+    fillDshModel({ name: "m" }, info, {
+      api: "openai-responses",
+      baseUrl: "https://map.example/v1",
+    }).reasoningEfforts,
+  ).toEqual({ off: null, high: "xhigh" });
+  expect(
+    fillDshModel({ name: "m" }, info, {
+      api: "anthropic-messages",
+      baseUrl: "https://map.example/v1",
+    }).reasoningEfforts,
+  ).toBeUndefined();
+  expect(
+    fillDshModel({ name: "m", reasoningEfforts: { high: "high" } }, info, {
+      api: "openai-responses",
+      baseUrl: "https://map.example/v1",
+    }).reasoningEfforts,
+  ).toEqual({ high: "high" });
+});
+
+it.each([null, ["text"], "custom-mode"])(
+  "keeps unknown modality shapes intact: %j",
+  (modalities) => {
+    expect(
+      fillOpenCodeModel({ name: "m", modalities }, metadata).modalities,
+    ).toEqual(modalities);
+  },
+);
+it("does not re-enable Kimi capabilities after manual edits while its context is still automatic", () => {
+  expect(
+    fillKimiModel(
+      { model: "m", max_context_size: 1, capabilities: [] },
+      metadata,
+      { replaceContext: true, replaceCapabilities: false },
+    ).capabilities,
+  ).toEqual([]);
+});
+it("honors provider-level compatibility restrictions when considering a DSH profile", () => {
+  const info = {
+    reasoning: true,
+    reasoningEfforts: ["high"],
+    dshThinking: {
+      api: "openai-completions",
+      baseUrl: "https://map.example/v1",
+      reasoningEfforts: { high: "high" },
+      compat: { supportsReasoningEffort: true },
+    },
+  };
+  expect(
+    fillDshModel({ name: "m" }, info, {
+      api: "openai-completions",
+      baseUrl: "https://map.example/v1",
+      compat: { supportsReasoningEffort: false },
+    }).reasoningEfforts,
+  ).toBeUndefined();
 });

@@ -169,3 +169,22 @@ describe("Codex model list drag handles", () => {
     );
   });
 });
+
+it("keeps an explicitly empty ladder when another field is edited", async () => {
+  const props = makeProps({
+    catalogModels: [{ model: "model-1", reasoningLevels: [] }],
+  });
+  render(<Harness {...props} />);
+  fireEvent.change(screen.getByLabelText("菜单显示名"), {
+    target: { value: "Keep my settings" },
+  });
+  await waitFor(() =>
+    expect(props.onCatalogModelsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        model: "model-1",
+        reasoningLevels: [],
+        displayName: "Keep my settings",
+      }),
+    ]),
+  );
+});

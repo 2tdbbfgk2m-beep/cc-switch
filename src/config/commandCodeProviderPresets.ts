@@ -1,3 +1,8 @@
+import {
+  resolveModelMetadata,
+  type PresetModelSource,
+} from "@/lib/modelMetadata";
+import { modelMetadataFromConfig } from "@/lib/modelCapabilities";
 import type { OpenCodeModel } from "@/types";
 import {
   mcodeOnlyPiPresets,
@@ -64,65 +69,47 @@ export const commandCodeProviderPresets = mcodeProviderPresets.map((preset) => {
   };
 });
 
-/** Local reviewed metadata works even when fetching metadata for a new provider fails. */
+let nativeSources: PresetModelSource[] | undefined;
+/** The same endpoint-aware resolver as every form; no cross-provider consensus heuristic. */
 function reviewedCommandCodeModel(
   id: string,
-  baseUrl?: string,
+  baseUrl = "",
 ): OpenCodeModel | undefined {
-  if (nativeClaudeIds.has(id.toLowerCase())) {
+  nativeSources ??= commandCodeProviderPresets.map((preset) => ({
+    baseUrl: preset.settingsConfig.options.baseURL,
+    models: new Map(
+      Object.entries(preset.settingsConfig.models).map(([key, model]) => [
+        key,
+        modelMetadataFromConfig(model, "commandcode"),
+      ]),
+    ),
+  }));
+  const metadata = resolveModelMetadata(id, {
+    baseUrl,
+    presets: nativeSources,
+  });
+  if (metadata?.reasoningEfforts !== undefined)
+    return normalizeCommandCodeModel({
+      name: id,
+      reasoningEfforts: metadata.reasoningEfforts,
+    });
+  if (metadata?.reasoning === false)
+    return { name: id, reasoning: false, reasoningEfforts: [] };
+  // Desktop-only capabilities that are absent from the shared API catalog.
+  if (nativeClaudeIds.has(id.toLowerCase()))
     return {
       name: id,
       reasoning: true,
       reasoningEfforts: [...COMMANDCODE_EFFORTS],
     };
-  }
-  const candidates = commandCodeProviderPresets.flatMap((preset) =>
-    Object.entries(preset.settingsConfig.models)
-      .filter(([key]) => key.toLowerCase() === id.toLowerCase())
-      .map(([, model]) => ({
-        model,
-        endpoint: preset.settingsConfig.options.baseURL,
-      })),
-  );
-  const exact =
-    baseUrl &&
-    candidates.find(
-      (row) => row.endpoint.replace(/\/+$/, "") === baseUrl.replace(/\/+$/, ""),
-    );
-  const known = exact
-    ? exact.model
-    : !reviewedCommandCodeGptEfforts(id) &&
-        candidates.length &&
-        candidates.every(
-          (row) =>
-            JSON.stringify(row.model.reasoningEfforts) ===
-            JSON.stringify(candidates[0].model.reasoningEfforts),
-        )
-      ? candidates[0].model
-      : undefined;
-  return known
-    ? {
-        name: id,
-        reasoning: known.reasoning,
-        reasoningEfforts: [...(known.reasoningEfforts as string[])],
-      }
-    : reviewedCommandCodeGptEfforts(id)
-      ? {
-          name: id,
-          reasoning: true,
-          reasoningEfforts: reviewedCommandCodeGptEfforts(id),
-        }
-      : undefined;
+  return undefined;
 }
 
 export function commandCodeModelDefaults(
   id: string,
   baseUrl?: string,
 ): OpenCodeModel {
-  return (
-    reviewedCommandCodeModel(id, baseUrl) ??
-    normalizeCommandCodeModel({ name: id, reasoning: true })
-  );
+  return reviewedCommandCodeModel(id, baseUrl) ?? { name: id };
 }
 
 export function normalizeCommandCodeConfig<

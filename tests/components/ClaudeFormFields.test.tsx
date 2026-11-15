@@ -1,10 +1,5 @@
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { renderWithQueryClient as render } from "../utils/testQueryClient";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps, PropsWithChildren } from "react";
 import { useForm } from "react-hook-form";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -165,9 +160,7 @@ describe("ClaudeFormFields", () => {
         isCopilotPreset: false,
         apiFormat: "openai_chat",
       });
-      expect(
-        screen.getByRole("combobox", { name: "思考档位" }),
-      ).toBeVisible();
+      expect(screen.getByRole("combobox", { name: "思考档位" })).toBeVisible();
       unmount();
 
       renderCopilotForm({

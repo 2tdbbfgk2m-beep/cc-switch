@@ -1899,7 +1899,37 @@
     "reasoningEffortOff": "不发送",
     "reasoningEffortPassthrough": "原样发送",
     "directModeFormatInUse": "这张卡正在直连使用：改成这种格式后保存，请求会失败。请先切到路由或聚合。",
-    "directModeFormatSwitch": "直连模式下用不了这种格式，切到路由或聚合后才能用这张卡。"
+    "directModeFormatSwitch": "直连模式下用不了这种格式，切到路由或聚合后才能用这张卡。",
+    "modelReview": {
+      "title": "检查模型配置",
+      "description": "仅补空字段；已设置的限制保持不变。冲突仅供核对，未知能力不猜测。补全结果保留在当前表单，保存后才生效。",
+      "loading": "正在读取公共模型资料…",
+      "offline": "公共资料暂不可用，使用内置目录。",
+      "fill": "补全空字段",
+      "fillAll": "补全全部空字段",
+      "source": "参考来源",
+      "unknown": "未知",
+      "unknownHint": "未找到可确认的模型能力，请手动核对",
+      "missing": "缺失",
+      "conflict": "冲突（保留当前值）",
+      "parameter": "参数",
+      "current": "当前值",
+      "reference": "参考值",
+      "status": "检查结果",
+      "sourceConflict": "资料来源存在差异，按同供应商优先取值",
+      "effortCount": "推理 {{count}} 档",
+      "outputLimit": "输出上限 {{tokens}}",
+      "fields": {
+        "contextWindow": "上下文",
+        "maxOutputTokens": "输出上限",
+        "reasoning": "推理能力",
+        "reasoningEfforts": "推理档位",
+        "inputModalities": "输入模态",
+        "outputModalities": "输出模态"
+      },
+      "nativeDescription": "这些能力由原生客户端管理；这里只核对公共模型资料，不向配置写入额外字段。"
+    },
+    "modelMetadataSourceCatalog": "内置模型目录"
   },
   "copilot": {
     "automaticFormat": "由路由按模型自动选择",

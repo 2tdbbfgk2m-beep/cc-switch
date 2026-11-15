@@ -84,6 +84,66 @@ function setup(
 }
 
 describe("KimiProviderForm", () => {
+  it("fills a manually entered model but preserves capabilities changed while lookup is pending", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post("http://tauri.local/fetch_models_dev", async () => {
+        await gate;
+        return HttpResponse.json(
+          JSON.stringify({
+            example: {
+              api: "https://async.example/v1",
+              models: {
+                "future-model": {
+                  limit: { context: 123456 },
+                  reasoning: true,
+                  modalities: { input: ["text", "image"] },
+                },
+              },
+            },
+          }),
+        );
+      }),
+    );
+    setup(vi.fn(), undefined, {
+      provider: {
+        type: "openai",
+        base_url: "https://async.example/v1",
+        api_key: "sk-fictional",
+      },
+      models: {},
+    });
+    fireEvent.click(screen.getByRole("button", { name: "opencode.addModel" }));
+    const modelId = screen.getByLabelText("opencode.modelId");
+    fireEvent.change(modelId, { target: { value: "future-model" } });
+    fireEvent.blur(modelId);
+    expandModels();
+    fireEvent.click(screen.getByLabelText("kimi.capabilities.image_in"));
+    fireEvent.click(screen.getByLabelText("kimi.capabilities.image_in"));
+    release();
+    await waitFor(() => {
+      const native = parseToml(
+        (
+          screen.getByLabelText(
+            "providerForm.nativeConfig.title",
+          ) as HTMLTextAreaElement
+        ).value,
+      ) as {
+        models: Record<
+          string,
+          { max_context_size: number; capabilities?: string[] }
+        >;
+      };
+      const row = Object.values(native.models)[0];
+      expect(row.max_context_size).toBe(123456);
+      expect(row.capabilities ?? []).not.toContain("image_in");
+      expect(row.capabilities ?? []).not.toContain("thinking");
+    });
+  });
+
   it.each(["import", "toml"] as const)(
     "preserves native capabilities from %s without exposing audio or video controls",
     async (source) => {
@@ -123,14 +183,17 @@ describe("KimiProviderForm", () => {
         source === "import" ? native : config,
       );
       if (source === "toml") {
-        fireEvent.change(screen.getByLabelText("providerForm.nativeConfig.title"), {
-          target: {
-            value: kimiConfigToToml(
-              native as KimiProviderConfig,
-              "managed:kimi-code",
-            ),
+        fireEvent.change(
+          screen.getByLabelText("providerForm.nativeConfig.title"),
+          {
+            target: {
+              value: kimiConfigToToml(
+                native as KimiProviderConfig,
+                "managed:kimi-code",
+              ),
+            },
           },
-        });
+        );
       }
       expandModels();
       expect(
@@ -408,7 +471,9 @@ describe("KimiProviderForm", () => {
   it("shows this provider's tables in config.toml layout", () => {
     setup();
     const text = (
-      screen.getByLabelText("providerForm.nativeConfig.title") as HTMLTextAreaElement
+      screen.getByLabelText(
+        "providerForm.nativeConfig.title",
+      ) as HTMLTextAreaElement
     ).value;
     expect(text).toContain('[providers."managed:kimi-code"]');
     expect(text).toContain('[models."kimi-code/k3"]');
@@ -541,8 +606,11 @@ describe("KimiProviderForm", () => {
       expect(
         (
           parseToml(
-            (screen.getByLabelText("providerForm.nativeConfig.title") as HTMLTextAreaElement)
-              .value,
+            (
+              screen.getByLabelText(
+                "providerForm.nativeConfig.title",
+              ) as HTMLTextAreaElement
+            ).value,
           ) as { models: Record<string, { max_context_size: number }> }
         ).models["acme/model-x"].max_context_size,
       ).toBe(123456),

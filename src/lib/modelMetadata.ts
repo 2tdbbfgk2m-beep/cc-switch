@@ -1,4 +1,8 @@
 import {
+  catalogModelMetadata,
+  reviewedModelEfforts,
+} from "@/config/modelCapabilityCatalog";
+import {
   normalizeModelsDevModelId,
   type ModelsDevModel,
   type ModelsDevResponse,
@@ -25,6 +29,13 @@ export interface KnownModelMetadata {
     baseUrl: string;
     compat?: Readonly<Record<string, unknown>>;
   };
+  /** DSH keys are UI levels; values (including null) are the native wire mapping. */
+  dshThinking?: {
+    reasoningEfforts: Readonly<Record<string, string | null>>;
+    api: string;
+    baseUrl: string;
+    compat?: Readonly<Record<string, unknown>>;
+  };
   inputModalities?: string[];
   outputModalities?: string[];
   /** 美元 / 百万 token。只取自同一家供应商，原厂兜底不带价格。 */
@@ -37,11 +48,13 @@ export interface KnownModelMetadata {
 }
 
 /** 参数来自哪里：同地址预设，还是 models.dev。补全提示里告诉用户。 */
-export type ModelMetadataSource = "preset" | "models-dev";
+export type ModelMetadataSource = "preset" | "models-dev" | "catalog";
 
 export interface ResolvedModelMetadata extends KnownModelMetadata {
   /** 实际贡献了字段的来源，按优先级排序。 */
   sources: ModelMetadataSource[];
+  fieldSources?: Partial<Record<keyof KnownModelMetadata, ModelMetadataSource>>;
+  conflicts?: (keyof KnownModelMetadata)[];
 }
 
 /** 一个预设的地址和它手工核实过的模型参数。 */
@@ -119,8 +132,13 @@ function endpointKey(url: string): string | null {
       break;
     }
   }
-  const key = [parsed.hostname.toLowerCase(), ...segments].join("/");
+  const key = [parsed.host.toLowerCase(), ...segments].join("/");
   return ENDPOINT_ALIASES[key] ?? key;
+}
+
+export function modelEndpointsMatch(left: string, right: string): boolean {
+  const key = endpointKey(left);
+  return key !== null && key === endpointKey(right);
 }
 
 /** 挑出与地址是同一个接口的候选，保持原有顺序。 */
@@ -238,7 +256,7 @@ function metadataFromModelsDev(
   withCost: boolean,
 ): KnownModelMetadata {
   const efforts = stringList(
-    (model.reasoning_options ?? [])
+    (Array.isArray(model.reasoning_options) ? model.reasoning_options : [])
       .filter((option) => option?.type === "effort")
       .flatMap((option) => option.values ?? []),
   );
@@ -363,6 +381,8 @@ export function resolveModelMetadata(
     baseUrl: string;
     presets?: readonly PresetModelSource[];
     modelsDev?: ModelsDevResponse;
+    diagnostics?: boolean;
+    includeCatalog?: boolean;
   },
 ): ResolvedModelMetadata | null {
   const id = modelId.trim();
@@ -370,7 +390,16 @@ export function resolveModelMetadata(
 
   let metadata: KnownModelMetadata = {};
   const sources: ModelMetadataSource[] = [];
+  const fieldSources: NonNullable<ResolvedModelMetadata["fieldSources"]> = {};
+  const conflicts = new Set<keyof KnownModelMetadata>();
   const add = (source: ModelMetadataSource, found: KnownModelMetadata) => {
+    for (const [key, value] of Object.entries(found)) {
+      if (value === undefined) continue;
+      const field = key as keyof KnownModelMetadata;
+      if (metadata[field] === undefined) fieldSources[field] = source;
+      else if (JSON.stringify(metadata[field]) !== JSON.stringify(value))
+        conflicts.add(field);
+    }
     const before = fieldCount(metadata);
     metadata = mergeMissing(metadata, found);
     if (fieldCount(metadata) > before && !sources.includes(source)) {
@@ -386,7 +415,6 @@ export function resolveModelMetadata(
     const presetModel = findModelInMap(preset.models, id);
     if (presetModel) {
       add("preset", presetModel);
-      break;
     }
   }
 
@@ -396,6 +424,10 @@ export function resolveModelMetadata(
     if (providerModel) {
       add("models-dev", metadataFromModelsDev(providerModel, true));
     }
+    // A reviewed correction is a vendor fallback, never a provider override.
+    const efforts =
+      options.includeCatalog === false ? undefined : reviewedModelEfforts(id);
+    if (efforts) add("catalog", { reasoning: true, reasoningEfforts: efforts });
     const vendorModel = findByVendor(index, id);
     if (vendorModel) {
       const vendor = metadataFromModelsDev(vendorModel, false);
@@ -406,6 +438,26 @@ export function resolveModelMetadata(
     }
   }
 
+  const efforts =
+    options.includeCatalog === false ? undefined : reviewedModelEfforts(id);
+  if (efforts) add("catalog", { reasoning: true, reasoningEfforts: efforts });
+  const fallback =
+    options.includeCatalog === false ? undefined : catalogModelMetadata(id);
+  if (fallback) {
+    if (fallback.contextWindow !== undefined)
+      fallback.contextWindow = capGptContextWindow(id, fallback.contextWindow);
+    add("catalog", fallback);
+  }
+
+  if (metadata.reasoning === false) {
+    if (metadata.reasoningEfforts?.length) conflicts.add("reasoningEfforts");
+    metadata.reasoningEfforts = [];
+    fieldSources.reasoningEfforts = fieldSources.reasoning;
+  }
   if (sources.length === 0) return null;
-  return { ...metadata, sources };
+  return {
+    ...metadata,
+    sources,
+    ...(options.diagnostics ? { fieldSources, conflicts: [...conflicts] } : {}),
+  };
 }

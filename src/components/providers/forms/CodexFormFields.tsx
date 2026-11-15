@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import {
   useCallback,
   useEffect,
@@ -283,7 +284,7 @@ function createCatalogRow(seed?: Partial<CodexCatalogModel>): CodexCatalogRow {
     ...(seed?.baseInstructions
       ? { baseInstructions: seed.baseInstructions }
       : {}),
-    ...(seed?.reasoningLevels && seed.reasoningLevels.length > 0
+    ...(seed?.reasoningLevels !== undefined
       ? { reasoningLevels: seed.reasoningLevels }
       : {}),
     ...(seed?.defaultReasoningLevel
@@ -400,8 +401,8 @@ function catalogRowsMatchModels(
       (row.baseInstructions ?? "") === (incoming.baseInstructions ?? "") &&
       JSON.stringify(row.inputModalities ?? []) ===
         JSON.stringify(incoming.inputModalities ?? []) &&
-      JSON.stringify(row.reasoningLevels ?? []) ===
-        JSON.stringify(incoming.reasoningLevels ?? []) &&
+      JSON.stringify(row.reasoningLevels) ===
+        JSON.stringify(incoming.reasoningLevels) &&
       (row.defaultReasoningLevel ?? "") ===
         (incoming.defaultReasoningLevel ?? "")
     );
@@ -1058,6 +1059,11 @@ export function CodexFormFields({
     baseUrl: codexBaseUrl,
     presets: codexPresetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: JSON.stringify([
+      apiFormat,
+      selectedGitHubAccountId,
+      selectedXaiAccountId,
+    ]),
   });
   // 补全要在「改模型名」提交后立刻读到那一行，所以这两处经 ref 同步提交。
   const [catalogRowsRef, commitCatalogRows] = useCommittableRef(
@@ -1379,6 +1385,17 @@ export function CodexFormFields({
 
   const renderCatalogActionButtons = (onAdd: () => void, addLabel: string) => (
     <div className="flex gap-1">
+      <ModelMetadataReview
+        dialect="codex"
+        baseUrl={codexBaseUrl}
+        presets={codexPresetModelSources}
+        models={catalogRows.map((row) => ({
+          key: row.rowId,
+          id: row.model,
+          value: row,
+        }))}
+        onFill={fillCatalogRowMetadata}
+      />
       <FetchedModelPicker
         models={fetchedModels}
         configuredModelIds={catalogRows.map((row) => row.model)}
@@ -1803,6 +1820,22 @@ export function CodexFormFields({
                   <div className="flex gap-1">
                     <Input
                       value={row.model}
+                      onFocus={(event) => {
+                        event.currentTarget.dataset.initialModelId =
+                          event.currentTarget.value;
+                      }}
+                      onBlur={(event) => {
+                        if (
+                          event.currentTarget.dataset.initialModelId ===
+                          event.currentTarget.value
+                        )
+                          return;
+                        if (row.model.trim())
+                          handleSelectFetchedCatalogModel(
+                            row.rowId,
+                            row.model.trim(),
+                          );
+                      }}
                       onChange={(event) =>
                         handleUpdateCatalogRow(index, {
                           model: event.target.value,

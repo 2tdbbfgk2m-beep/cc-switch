@@ -1899,7 +1899,37 @@
     "reasoningEffortOff": "Don't send",
     "reasoningEffortPassthrough": "Send as is",
     "directModeFormatInUse": "This card is in use in direct mode: saving it with this format makes requests fail. Switch to routing or Aggregation first.",
-    "directModeFormatSwitch": "This format doesn't work in direct mode; switch to routing or Aggregation to use this card."
+    "directModeFormatSwitch": "This format doesn't work in direct mode; switch to routing or Aggregation to use this card.",
+    "modelReview": {
+      "title": "Check model configuration",
+      "description": "Fill empty fields only. Keep your limits. Conflicts are advisory and unknown capabilities are never guessed. Changes stay in this form until you save.",
+      "loading": "Loading public model metadata…",
+      "offline": "Public metadata unavailable; using the bundled catalog.",
+      "fill": "Fill empty fields",
+      "fillAll": "Fill all empty fields",
+      "source": "Sources",
+      "unknown": "Unknown",
+      "unknownHint": "No verified model capabilities found; please review manually",
+      "missing": "Missing",
+      "conflict": "Conflict (kept)",
+      "parameter": "Parameter",
+      "current": "Current",
+      "reference": "Reference",
+      "status": "Result",
+      "sourceConflict": "Sources differ; endpoint-specific values take priority",
+      "effortCount": "{{count}} reasoning tiers",
+      "outputLimit": "Output limit {{tokens}}",
+      "fields": {
+        "contextWindow": "Context window",
+        "maxOutputTokens": "Output limit",
+        "reasoning": "Reasoning",
+        "reasoningEfforts": "Reasoning tiers",
+        "inputModalities": "Input modalities",
+        "outputModalities": "Output modalities"
+      },
+      "nativeDescription": "These capabilities are managed by the native client. This view checks public model metadata without adding unsupported configuration fields."
+    },
+    "modelMetadataSourceCatalog": "bundled catalog"
   },
   "copilot": {
     "automaticFormat": "Selected automatically by routing",

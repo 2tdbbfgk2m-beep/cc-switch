@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -1085,6 +1086,27 @@ export function ClaudeFormFields({
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 pt-2">
+              <ModelMetadataReview
+                dialect="native"
+                baseUrl={baseUrl}
+                presets={() => []}
+                models={[
+                  ...new Set(
+                    [
+                      claudeModel,
+                      defaultHaikuModel,
+                      defaultSonnetModel,
+                      defaultOpusModel,
+                      defaultFableModel,
+                      subagentModel,
+                      ...stackModelRows.map((row) => row.model),
+                    ].filter(
+                      (id): id is string =>
+                        typeof id === "string" && !!id.trim(),
+                    ),
+                  ),
+                ].map((id) => ({ key: id, id, value: {} }))}
+              />
               {fullUrlToggle && (
                 <div className="border-b border-border pb-3">
                   {fullUrlToggle}

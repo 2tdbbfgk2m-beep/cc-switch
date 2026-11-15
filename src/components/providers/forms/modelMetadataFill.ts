@@ -1,14 +1,16 @@
+import { isPlainObject } from "@/lib/requestOverrides";
 // 从拉取列表选中模型后，把查到的已知参数换成各应用的字段格式补进这一行。
 // 统一规则：只补空着的字段，用户填过的值一律不动；布尔和模态只往「支持」方向补。
 
-import type { KnownModelMetadata } from "@/lib/modelMetadata";
+import {
+  positiveInteger,
+  modelEndpointsMatch,
+  type KnownModelMetadata,
+} from "@/lib/modelMetadata";
 import type { CodexCatalogModel, OpenClawModel, OpenCodeModel } from "@/types";
 import type { HermesModel } from "@/config/hermesProviderPresets";
 import type { KimiProviderConfig } from "@/config/kimiProviderPresets";
-import {
-  normalizeCommandCodeModel,
-  reviewedCommandCodeGptEfforts,
-} from "@/config/commandcodeReasoning";
+import { normalizeCommandCodeModel } from "@/config/commandcodeReasoning";
 import {
   PI_THINKING_LEVELS,
   type PiThinkingLevelMap,
@@ -20,6 +22,10 @@ export const metadataFilledAnything = (before: unknown, after: unknown) =>
 
 const isBlank = (value: unknown) =>
   value === undefined || value === null || String(value).trim() === "";
+
+/** Bound only values we generate; explicit user limits are never rewritten. */
+export const boundedModelOutput = (output: number, context: unknown): number =>
+  Math.min(output, positiveInteger(context) ?? output);
 
 /** 只认文字和图片两种输入（Codex / OpenClaw / Pi 的模态字段只有这两种）。 */
 function textImageModalities(
@@ -38,7 +44,7 @@ export function fillCodexCatalogModel<T extends CodexCatalogModel>(
   if (isBlank(row.contextWindow) && metadata.contextWindow) {
     next.contextWindow = String(metadata.contextWindow);
   }
-  if (!row.reasoningLevels?.length && metadata.reasoningEfforts) {
+  if (row.reasoningLevels === undefined && metadata.reasoningEfforts) {
     // 按 Codex 的档位顺序排，丢掉它不认识的值。
     const levels = knownLevels.filter((level) =>
       metadata.reasoningEfforts?.includes(level),
@@ -62,22 +68,17 @@ export function fillOpenClawModel(
     next.contextWindow = metadata.contextWindow;
   }
   if (isBlank(model.maxTokens) && metadata.maxOutputTokens) {
-    next.maxTokens = metadata.maxOutputTokens;
+    next.maxTokens = boundedModelOutput(
+      metadata.maxOutputTokens,
+      next.contextWindow,
+    );
   }
   if (model.reasoning === undefined && metadata.reasoning !== undefined) {
     next.reasoning = metadata.reasoning;
-  } else if (metadata.reasoning === true) {
-    next.reasoning = true;
   }
-  if (!model.input?.length) {
+  if (model.input === undefined) {
     const input = textImageModalities(metadata.inputModalities);
     if (input) next.input = input;
-  } else if (
-    metadata.inputModalities?.includes("image") &&
-    !model.input.includes("image")
-  ) {
-    // 新建的行默认只有 text，模型支持图片就补上。
-    next.input = [...model.input, "image"];
   }
   if (!model.cost && metadata.cost) {
     next.cost = { ...metadata.cost };
@@ -106,22 +107,86 @@ export function fillHermesModel(
 export function fillCommandCodeModel(
   model: OpenCodeModel,
   metadata: KnownModelMetadata,
-  modelId = "",
+  _modelId = "",
 ): OpenCodeModel {
   const next = fillOpenCodeModel(model, metadata);
   return normalizeCommandCodeModel({
     ...next,
     ...(model.reasoningEfforts === undefined &&
     model.reasoning !== false &&
+    metadata.reasoning !== false &&
     model.thinking === undefined &&
     model.variants === undefined &&
-    (reviewedCommandCodeGptEfforts(modelId) ?? metadata.reasoningEfforts)
+    metadata.reasoningEfforts
       ? {
-          reasoningEfforts:
-            reviewedCommandCodeGptEfforts(modelId) ?? metadata.reasoningEfforts,
+          reasoningEfforts: metadata.reasoningEfforts,
         }
       : {}),
   });
+}
+
+/** MCode and DSH share the lookup; only the final native encoding differs. */
+export function fillMcodeModel(
+  model: OpenCodeModel,
+  metadata: KnownModelMetadata,
+): OpenCodeModel {
+  const next = fillOpenCodeModel(model, metadata);
+  if (
+    model.thinking === undefined &&
+    model.reasoning !== false &&
+    metadata.reasoning !== false &&
+    metadata.reasoningEfforts?.length
+  )
+    next.thinking = { effortOptions: [...metadata.reasoningEfforts] };
+  return next;
+}
+export function fillDshModel(
+  model: OpenCodeModel,
+  metadata: KnownModelMetadata,
+  protocol?: { api: string; baseUrl: string; compat?: Record<string, unknown> },
+): OpenCodeModel {
+  const next = fillOpenCodeModel(model, metadata);
+  if (model.reasoningEfforts === false) return { ...next, reasoning: false };
+  if (model.reasoningEfforts !== undefined || model.reasoning === false)
+    return next;
+  const profile = metadata.dshThinking;
+  if (profile) {
+    // A UI tier is not necessarily its wire value. Never reconstruct a native map from its keys.
+    if (
+      !protocol ||
+      protocol.api !== profile.api ||
+      !modelEndpointsMatch(protocol.baseUrl, profile.baseUrl)
+    )
+      return next;
+    if (model.compat !== undefined && !isPlainObject(model.compat)) return next;
+    const compat = { ...(model.compat as Record<string, unknown> | undefined) };
+    const effective = { ...protocol.compat, ...compat };
+    for (const [key, value] of Object.entries(profile.compat ?? {})) {
+      if (
+        effective[key] !== undefined &&
+        JSON.stringify(effective[key]) !== JSON.stringify(value)
+      )
+        return next;
+      if (effective[key] === undefined) compat[key] = value;
+    }
+    if (Object.keys(compat).length) next.compat = compat;
+    next.reasoningEfforts = { ...profile.reasoningEfforts };
+  } else if (metadata.reasoningEfforts !== undefined) {
+    const efforts = metadata.reasoningEfforts.filter(
+      (level) =>
+        level === "none" ||
+        PI_THINKING_LEVELS.includes(
+          level as (typeof PI_THINKING_LEVELS)[number],
+        ),
+    );
+    if (efforts.length)
+      next.reasoningEfforts = Object.fromEntries(
+        efforts.map((level) => [level === "none" ? "off" : level, level]),
+      );
+    else if (metadata.reasoningEfforts.length === 0)
+      next.reasoningEfforts = false;
+  }
+  return next;
 }
 
 export function fillOpenCodeModel(
@@ -134,13 +199,25 @@ export function fillOpenCodeModel(
     limit.context = metadata.contextWindow;
   }
   if (isBlank(limit.output) && metadata.maxOutputTokens) {
-    limit.output = metadata.maxOutputTokens;
+    limit.output = boundedModelOutput(metadata.maxOutputTokens, limit.context);
   }
   if (Object.keys(limit).length > 0) next.limit = limit;
-  if (model.modalities === undefined && metadata.inputModalities) {
+  const modalities = model.modalities as
+    | { input?: string[]; output?: string[] }
+    | undefined;
+  if (
+    (model.modalities === undefined || isPlainObject(model.modalities)) &&
+    ((!modalities?.input && metadata.inputModalities) ||
+      (!modalities?.output && metadata.outputModalities))
+  ) {
     next.modalities = {
-      input: metadata.inputModalities,
-      output: metadata.outputModalities ?? ["text"],
+      ...modalities,
+      ...(modalities?.input === undefined && metadata.inputModalities
+        ? { input: metadata.inputModalities }
+        : {}),
+      ...(modalities?.output === undefined && metadata.outputModalities
+        ? { output: metadata.outputModalities }
+        : {}),
     };
   }
   // OpenCode 只给 reasoning 为真的模型生成思考档位（ctrl+t）。只补 true：
@@ -162,12 +239,16 @@ type KimiModel = KimiProviderConfig["models"][string];
 export function fillKimiModel(
   model: KimiModel,
   metadata: KnownModelMetadata,
-  { replaceContext }: { replaceContext: boolean },
+  {
+    replaceContext,
+    replaceCapabilities = false,
+  }: { replaceContext: boolean; replaceCapabilities?: boolean },
 ): KimiModel {
   const next = { ...model };
   if (replaceContext && metadata.contextWindow) {
     next.max_context_size = metadata.contextWindow;
   }
+  if (model.capabilities !== undefined && !replaceCapabilities) return next;
   const capabilities = new Set(model.capabilities ?? []);
   if (metadata.inputModalities?.includes("image")) capabilities.add("image_in");
   if (metadata.reasoning === true) capabilities.add("thinking");

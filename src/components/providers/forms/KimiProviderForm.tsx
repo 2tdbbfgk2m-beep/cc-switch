@@ -1,3 +1,4 @@
+import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -210,6 +211,7 @@ export function KimiProviderForm({
   };
   // 窗口还是占位值的行（这次新加、用户没改过窗口），选中模型时可以换成查到的值。
   const placeholderContextKeys = useRef(new Set<string>());
+  const autoCapabilityKeys = useRef(new Set<string>());
   const [expandedModels, setExpandedModels] = useState<Set<string>>(
     () => new Set(),
   );
@@ -329,6 +331,7 @@ export function KimiProviderForm({
     baseUrl,
     presets: kimiPresetModelSources,
     prefetch: fetchedModels.length > 0,
+    identity: providerType,
   });
   // 补全可能晚到：读最新的配置，确认这一行仍是这个模型再补。
   const fillModelMetadataFor = (key: string, id: string, silent?: boolean) =>
@@ -340,6 +343,7 @@ export function KimiProviderForm({
         if (model?.model !== id) return false;
         const filled = fillKimiModel(model, metadata, {
           replaceContext: placeholderContextKeys.current.has(key),
+          replaceCapabilities: autoCapabilityKeys.current.has(key),
         });
         if (!metadataFilledAnything(model, filled)) return false;
         placeholderContextKeys.current.delete(key);
@@ -379,6 +383,7 @@ export function KimiProviderForm({
         capabilities: ["tool_use"],
       };
       placeholderContextKeys.current.add(key);
+      autoCapabilityKeys.current.add(key);
       added.push([key, id]);
     }
     update({ ...configRef.current, models });
@@ -390,7 +395,9 @@ export function KimiProviderForm({
   const updateModel = (
     key: string,
     patch: Partial<KimiProviderConfig["models"][string]>,
-  ) =>
+  ) => {
+    if (patch.capabilities !== undefined)
+      autoCapabilityKeys.current.delete(key);
     update({
       ...configRef.current,
       models: {
@@ -398,6 +405,7 @@ export function KimiProviderForm({
         [key]: { ...configRef.current.models[key], ...patch },
       },
     });
+  };
   const presetSelector = (
     <ProviderPresetSelector
       selectedPresetId={presetId}
@@ -418,6 +426,7 @@ export function KimiProviderForm({
           id === "custom" ? undefined : kimiProviderPresets[Number(id)];
         setCategory(preset?.category ?? "custom");
         placeholderContextKeys.current.clear();
+        autoCapabilityKeys.current.clear();
         update(
           kimiConfigSchema.parse(
             structuredClone(preset?.settingsConfig ?? emptyKimiConfig()),
@@ -543,6 +552,9 @@ export function KimiProviderForm({
                         model,
                       ]),
                     );
+                    autoCapabilityKeys.current = new Set(
+                      [...autoCapabilityKeys.current].map(rename),
+                    );
                     placeholderContextKeys.current = new Set(
                       [...placeholderContextKeys.current].map(rename),
                     );
@@ -633,6 +645,17 @@ export function KimiProviderForm({
                 </HelpTip>
               </div>
               <div className="flex gap-1">
+                <ModelMetadataReview
+                  dialect="kimi"
+                  baseUrl={baseUrl}
+                  presets={kimiPresetModelSources}
+                  models={Object.entries(config.models).map(([key, value]) => ({
+                    key,
+                    id: value.model,
+                    value,
+                  }))}
+                  onFill={fillModelMetadataFor}
+                />
                 <FetchedModelPicker
                   models={fetchedModels}
                   configuredModelIds={Object.values(config.models).map(
@@ -656,6 +679,7 @@ export function KimiProviderForm({
                     )
                       key = `${modelKeyPrefix}/model-${++index}`;
                     placeholderContextKeys.current.add(key);
+                    autoCapabilityKeys.current.add(key);
                     update({
                       ...config,
                       models: {
@@ -708,6 +732,22 @@ export function KimiProviderForm({
                         <Input
                           id={`kimi-model-${key}`}
                           value={model.model}
+                          onFocus={(event) => {
+                            event.currentTarget.dataset.initialModelId =
+                              event.currentTarget.value;
+                          }}
+                          onBlur={(event) => {
+                            if (
+                              event.currentTarget.dataset.initialModelId ===
+                              event.currentTarget.value
+                            )
+                              return;
+                            const id = model.model.trim();
+                            if (id) {
+                              updateModel(key, { model: id });
+                              fillModelMetadataFor(key, id);
+                            }
+                          }}
                           onChange={(e) =>
                             updateModel(key, { model: e.target.value })
                           }
@@ -748,6 +788,7 @@ export function KimiProviderForm({
                             const models = { ...config.models };
                             delete models[key];
                             placeholderContextKeys.current.delete(key);
+                            autoCapabilityKeys.current.delete(key);
                             setExpandedModels((current) => {
                               const next = new Set(current);
                               next.delete(key);
@@ -851,6 +892,8 @@ export function KimiProviderForm({
             const parsed = kimiConfigFromToml(text, textKey);
             setTextError(parsed.ok ? null : parsed.error);
             if (parsed.ok) {
+              autoCapabilityKeys.current.clear();
+              placeholderContextKeys.current.clear();
               const next = {
                 ...configRef.current,
                 provider: parsed.provider,
