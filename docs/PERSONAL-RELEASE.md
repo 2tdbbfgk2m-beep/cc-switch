@@ -16,6 +16,19 @@ https://github.com/2tdbbfgk2m-beep/cc-switch/releases/latest/download/latest.jso
 
 此流程只发布 macOS ARM64。应用使用临时代码签名，没有 Apple Developer ID 公证；Tauri 更新包使用独立密钥签名并在安装前校验。首次需手动安装个人版，此后可在应用中一键更新。
 
+## 发布未触发的排查
+
+先确认目标是个人仓库；本地同时存在 upstream 时，`gh` 的默认仓库可能指向上游。所有发布命令显式使用 `-R 2tdbbfgk2m-beep/cc-switch`。
+
+```bash
+gh run list -R 2tdbbfgk2m-beep/cc-switch --workflow personal-release.yml --limit 5
+gh workflow run personal-release.yml -R 2tdbbfgk2m-beep/cc-switch --ref main
+```
+
+2026-11-16 的未触发原因是 GitHub 暂停 Fork 的工作流以减少无效计算。页面显示 “Workflows on this fork have been disabled”，手动触发返回 HTTP 422 “Actions has been disabled for this repository”。此时 permissions API 仍可能显示 enabled=true，个人工作流仍显示 active，单凭这两项不能认定可以运行。需用已登录的维护者账号打开个人仓库 Actions 页面，点击 “I understand my workflows, go ahead and re-enable them”；页面确认 Actions Enabled 后，再检查新提交实际出现对应的运行记录。普通 permissions/workflow enable API 不会解除这层暂停。
+
+恢复后核对上游 CI、Release、R2、Nightly 等仍处于 disabled_manually，仅保留个人发布工作流。不要通过重推相同提交假定已触发；检查运行的 headSha 与当前 main 一致，成功后检查公开 Release、签名包与 latest.json，最后用应用内更新验收。GitHub 平台今后仍可能暂停 Fork，仓库源码无法保证平台永不暂停；遇到无运行记录时按此流程恢复。
+
 ## 合并作者更新
 
 ```bash
