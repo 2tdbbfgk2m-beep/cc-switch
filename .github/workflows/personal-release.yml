@@ -63,7 +63,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm format:check
-      - run: pnpm vitest run tests/config/whatsNewEntries.test.ts tests/config/commandcodeReasoning.test.ts tests/components/McodeProviderForm.test.tsx tests/components/OpenCodeFormFields.test.tsx tests/components/modelMetadataFill.test.ts tests/commandcodeDocumentsHook.test.js
+      - run: pnpm vitest run tests/config/whatsNewEntries.test.ts tests/config/commandcodeReasoning.test.ts tests/lib/modelCapabilities.test.ts tests/components/CommandCodeManualEfforts.test.tsx tests/components/McodeProviderForm.test.tsx tests/components/OpenCodeFormFields.test.tsx tests/components/modelMetadataFill.test.ts tests/commandcodeDocumentsHook.test.js
       - run: node --test tests/scripts/commandcode*.test.mjs
       - run: pnpm exec prettier --check scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs tests/scripts/commandcodeTaste.test.mjs
 
