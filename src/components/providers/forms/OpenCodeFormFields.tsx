@@ -292,8 +292,68 @@ function ReasoningEffortsField({
   );
 }
 
+function CommandcodeSpeedField({
+  modelKey,
+  model,
+  onChange,
+}: {
+  modelKey: string;
+  model: OpenCodeModel;
+  onChange: (model: OpenCodeModel) => void;
+}) {
+  const { t } = useTranslation();
+  const tier = model.options?.service_tier;
+  const enabled =
+    tier === "fast" || tier === "priority" || tier === "ultrafast";
+  const setTier = (serviceTier: string) =>
+    onChange({
+      ...model,
+      options: { ...model.options, service_tier: serviceTier },
+    });
+
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <Label htmlFor={`commandcode-${modelKey}-speed`}>
+          {t("commandcode.speedMode", { defaultValue: "Speed mode" })}
+        </Label>
+        <Switch
+          id={`commandcode-${modelKey}-speed`}
+          checked={enabled}
+          onCheckedChange={(checked) => setTier(checked ? "fast" : "default")}
+        />
+        <Select
+          value={tier === "ultrafast" ? "ultrafast" : "fast"}
+          disabled={!enabled}
+          onValueChange={setTier}
+        >
+          <SelectTrigger
+            className="w-36"
+            aria-label={t("commandcode.speedTier", {
+              defaultValue: "Speed tier",
+            })}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="fast">Fast</SelectItem>
+            <SelectItem value="ultrafast">Ultrafast</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-xs text-fg-2">
+        {t("commandcode.speedHint", {
+          defaultValue:
+            "Sets this model's service_tier. Requires provider and model support and may increase costs. Turning it off requests the standard tier.",
+        })}
+      </p>
+    </div>
+  );
+}
+
 interface OpenCodeFormFieldsProps {
   allowBuiltinDefaults?: boolean;
+  enableModelSpeedTier?: boolean;
   /** 模型字段方言：DeepSeek Harness 多出思考档位和接口兼容性。 */
   modelDialect?: OpenCodeModelDialect;
   providerCompat?: Record<string, unknown>;
@@ -332,6 +392,7 @@ interface OpenCodeFormFieldsProps {
 
 export function OpenCodeFormFields({
   allowBuiltinDefaults = false,
+  enableModelSpeedTier = false,
   modelDialect = "opencode",
   providerCompat,
   presetModelSources: customPresetModelSources,
@@ -1151,6 +1212,13 @@ export function OpenCodeFormFields({
                         />
                       </div>
                     </div>
+                    {enableModelSpeedTier && (
+                      <CommandcodeSpeedField
+                        modelKey={key}
+                        model={model}
+                        onChange={(next) => updateModel(key, next)}
+                      />
+                    )}
                     <div className="space-y-2">
                       <Label htmlFor={`opencode-${key}-limit-context`}>
                         {t("pi.form.contextWindow")}

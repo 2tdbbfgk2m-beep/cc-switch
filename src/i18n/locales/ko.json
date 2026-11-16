@@ -3,6 +3,11 @@
     "title": "CC Switch",
     "description": "Claude Code / Codex / Gemini CLI용 종합 지원 도구"
   },
+  "commandcode": {
+    "speedMode": "속도 모드",
+    "speedTier": "속도 등급",
+    "speedHint": "이 모델의 service_tier를 설정합니다. 공급자와 모델의 지원이 필요하며 비용이 증가할 수 있습니다. 끄면 표준 등급을 요청합니다."
+  },
   "common": {
     "unsavedLeaveTitle": "저장되지 않은 변경 사항",
     "unsavedLeaveMessage": "이 페이지를 나가면 변경 사항이 저장되지 않습니다.",

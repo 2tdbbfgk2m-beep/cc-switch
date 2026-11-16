@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { McodeProviderForm } from "@/components/providers/forms/McodeProviderForm";
 import { mcodeProviderPresets } from "@/config/mcodeProviderPresets";
@@ -59,6 +60,124 @@ const original = {
 };
 
 describe("McodeProviderForm", () => {
+  it("saves Command Code speed tiers per model without changing other options", async () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
+    const user = userEvent.setup();
+    const submit = vi.fn();
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        providerId="existing"
+        initialData={{
+          name: "Existing",
+          settingsConfig: {
+            ...original,
+            api: "openai-responses",
+            models: {
+              model: { name: "GPT", options: { temperature: 0.5 } },
+              untouched: { name: "Other", options: { service_tier: "flex" } },
+            },
+          },
+        }}
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Toggle model details" })[0]);
+    const speed = screen.getByRole("switch", { name: "Speed mode" });
+    expect(speed).not.toBeChecked();
+    fireEvent.click(speed);
+    const editor = screen.getByLabelText("provider.configJson") as HTMLTextAreaElement;
+    expect(JSON.parse(editor.value).models.model.options).toEqual({
+      temperature: 0.5,
+      service_tier: "fast",
+    });
+    await user.click(screen.getByRole("combobox", { name: "Speed tier" }));
+    await user.click(screen.getByRole("option", { name: "Ultrafast" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    const saved = JSON.parse(submit.mock.calls[0][0].settingsConfig);
+    expect(saved.models.model.options).toEqual({ temperature: 0.5, service_tier: "ultrafast" });
+    expect(saved.models.untouched.options).toEqual({ service_tier: "flex" });
+    expect(saved.options).toEqual(original.options);
+    expect(saved.futureSetting).toEqual(original.futureSetting);
+  });
+
+  it.each(["fast", "priority", "ultrafast"])(
+    "reads and disables an existing %s speed tier",
+    async (tier) => {
+      const submit = vi.fn();
+      render(
+        <McodeProviderForm
+          appId="commandcode"
+          providerId="existing"
+          initialData={{
+            name: "Existing",
+            settingsConfig: {
+              ...original,
+              models: { model: { name: "GPT", options: { temperature: 0.5, service_tier: tier } } },
+            },
+          }}
+          submitLabel="Save"
+          onSubmit={submit}
+          onCancel={() => {}}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Toggle model details" }));
+      const speed = screen.getByRole("switch", { name: "Speed mode" });
+      expect(speed).toBeChecked();
+      fireEvent.click(speed);
+      expect(speed).not.toBeChecked();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+      expect(JSON.parse(submit.mock.calls[0][0].settingsConfig).models.model.options).toEqual({
+        temperature: 0.5,
+        service_tier: "default",
+      });
+    },
+  );
+
+  it("reflects JSON tier edits without rewriting an untouched flex tier", async () => {
+    const submit = vi.fn();
+    render(
+      <McodeProviderForm
+        appId="commandcode"
+        providerId="existing"
+        initialData={{ name: "Existing", settingsConfig: original }}
+        submitLabel="Save"
+        onSubmit={submit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Toggle model details" }));
+    const settings = { ...original, models: { model: { name: "GPT", options: { service_tier: "ultrafast" } } } };
+    const editor = screen.getByLabelText("provider.configJson");
+    fireEvent.change(editor, { target: { value: JSON.stringify(settings) } });
+    expect(screen.getByRole("switch", { name: "Speed mode" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Speed tier" })).toHaveTextContent("Ultrafast");
+    settings.models.model.options.service_tier = "flex";
+    fireEvent.change(editor, { target: { value: JSON.stringify(settings) } });
+    expect(screen.getByRole("switch", { name: "Speed mode" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(JSON.parse(submit.mock.calls[0][0].settingsConfig).models.model.options.service_tier).toBe("flex");
+  });
+
+  it.each(["mcode", "dsh"] as const)("hides speed controls for %s", (appId) => {
+    render(
+      <McodeProviderForm
+        appId={appId}
+        providerId="existing"
+        initialData={{ name: "Existing", settingsConfig: original }}
+        submitLabel="Save"
+        onSubmit={vi.fn()}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Toggle model details" }));
+    expect(screen.queryByRole("switch", { name: "Speed mode" })).not.toBeInTheDocument();
+  });
   it("creates the OpenAI Command Code preset with all reviewed GPT efforts", async () => {
     const submit = vi.fn();
     render(

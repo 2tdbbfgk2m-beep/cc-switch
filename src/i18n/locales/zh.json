@@ -3,6 +3,11 @@
     "title": "CC Switch",
     "description": "Claude Code / Codex / Gemini CLI 全方位辅助工具"
   },
+  "commandcode": {
+    "speedMode": "速度模式",
+    "speedTier": "速度档位",
+    "speedHint": "设置此模型的 service_tier，需要供应商和模型支持，可能增加费用。关闭时明确请求标准档位。"
+  },
   "common": {
     "unsavedLeaveTitle": "有未保存的修改",
     "unsavedLeaveMessage": "离开后，当前编辑页里的修改不会保存。",

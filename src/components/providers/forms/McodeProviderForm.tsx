@@ -363,6 +363,7 @@ export function McodeProviderForm({
             }
           />
           <OpenCodeFormFields
+            enableModelSpeedTier={appId === "commandcode"}
             modelDialect={
               appId === "dsh"
                 ? "dsh"

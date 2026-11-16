@@ -3,6 +3,11 @@
     "title": "CC Switch",
     "description": "Claude Code, Codex ve Gemini CLI için Hepsi Bir Arada Asistan"
   },
+  "commandcode": {
+    "speedMode": "Hız modu",
+    "speedTier": "Hız seviyesi",
+    "speedHint": "Bu modelin service_tier değerini ayarlar. Sağlayıcı ve model desteği gerektirir, maliyeti artırabilir. Kapatıldığında standart seviye istenir."
+  },
   "common": {
     "unsavedLeaveTitle": "Kaydedilmemiş değişiklikler",
     "unsavedLeaveMessage": "Ayrılırsanız bu editör sayfasındaki değişiklikler kaydedilmeyecektir.",
