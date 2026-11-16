@@ -1931,7 +1931,7 @@
     },
     "modelMetadataSourceCatalog": "bundled catalog",
     "manualReasoningLabel": "Reasoning tiers",
-    "manualReasoningHint": "Manual choices override automatic completion; clear to hide efforts. Ultra is local orchestration and uses only selected valid API efforts. Defaults: 2 concurrent subagents and a shared 64,000-token budget."
+    "manualReasoningHint": "Choose API efforts here; manual choices override completion. Select Ultra separately in CMD for local orchestration within these limits. Defaults: 2 concurrent subagents and a shared 64,000-token budget."
   },
   "copilot": {
     "automaticFormat": "Selected automatically by routing",

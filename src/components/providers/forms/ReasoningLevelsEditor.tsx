@@ -69,6 +69,7 @@ export function ReasoningLevelsEditor({
   onDefaultLevelChange,
   ariaLabel,
   hint,
+  availableLevels = REASONING_LEVELS,
 }: {
   levels?: string[];
   defaultLevel?: string;
@@ -76,11 +77,12 @@ export function ReasoningLevelsEditor({
   onDefaultLevelChange?: (level: string | undefined) => void;
   ariaLabel?: string;
   hint?: string;
+  availableLevels?: readonly string[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const selected = (levels ?? []).filter((level) =>
-    (REASONING_LEVELS as readonly string[]).includes(level),
+    availableLevels.includes(level),
   );
 
   const toggleLevel = (level: string) => {
@@ -89,9 +91,7 @@ export function ReasoningLevelsEditor({
       : [...selected, level];
     // Store in canonical ascending-depth order (not click order): the Codex
     // picker and the generated catalog both follow array order.
-    const next = (REASONING_LEVELS as readonly string[]).filter((item) =>
-      picked.includes(item),
-    );
+    const next = availableLevels.filter((item) => picked.includes(item));
     onLevelsChange(next.length > 0 ? next : undefined);
     if (defaultLevel && !next.includes(defaultLevel)) {
       onDefaultLevelChange?.(undefined);
@@ -171,7 +171,7 @@ export function ReasoningLevelsEditor({
               })}
             </CommandEmpty>
             <CommandGroup>
-              {REASONING_LEVELS.map((level) => (
+              {availableLevels.map((level) => (
                 <CommandItem
                   key={level}
                   value={level}

@@ -1,10 +1,5 @@
 import type { OpenCodeModel, OpenCodeProviderConfig } from "@/types";
 import { isPlainObject } from "@/lib/requestOverrides";
-import {
-  COMMANDCODE_DEFAULT_EFFORTS,
-  normalizeCommandCodeModel,
-  reviewedCommandCodeGptEfforts,
-} from "@/config/commandcodeReasoning";
 
 // ── Default configs ──────────────────────────────────────────────────
 
@@ -305,8 +300,6 @@ export function modelSupportsReasoning(
   model: OpenCodeModel,
   dialect: OpenCodeModelDialect,
 ): boolean {
-  if (dialect === "commandcode")
-    return normalizeCommandCodeModel(model).reasoning === true;
   if (typeof model.reasoning === "boolean") return model.reasoning;
   return dialect === "dsh" && isReasoningEffortMap(model.reasoningEfforts);
 }
@@ -323,28 +316,8 @@ export function withModelReasoning(
   model: OpenCodeModel,
   enabled: boolean,
   dialect: OpenCodeModelDialect,
-  modelId = "",
 ): OpenCodeModel {
   const next = { ...model };
-  if (dialect === "commandcode") {
-    return normalizeCommandCodeModel({
-      ...next,
-      reasoning: enabled,
-      reasoningEfforts: enabled
-        ? Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length
-          ? model.reasoningEfforts
-          : model.thinking !== undefined || model.variants !== undefined
-            ? normalizeCommandCodeModel<Partial<OpenCodeModel>>({
-                ...model,
-                reasoning: true,
-                reasoningEfforts: undefined,
-              }).reasoningEfforts
-            : (reviewedCommandCodeGptEfforts(modelId) ?? [
-                ...COMMANDCODE_DEFAULT_EFFORTS,
-              ])
-        : [],
-    });
-  }
   if (dialect === "dsh") {
     // DSH 只看 reasoningEfforts：false 表示不思考，对象是提供的档位
     next.reasoning = enabled;

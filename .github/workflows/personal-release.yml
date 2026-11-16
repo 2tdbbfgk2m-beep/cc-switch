@@ -67,7 +67,9 @@ jobs:
       - run: node --test tests/scripts/commandcode*.test.mjs
       - run: pnpm exec prettier --check scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs tests/scripts/commandcodeTaste.test.mjs
 
-      - run: pnpm build:commandcode-documents
+      - run: pnpm build:commandcode-extensions
+      - run: node scripts/verify-commandcode-runtimes.mjs --download --cache "${{ runner.temp }}/commandcode-runtimes"
+      - run: pnpm exec prettier --check scripts/commandcode-desktop scripts/commandcode-reasoning scripts/*commandcode-extensions.mjs scripts/test-commandcode-package.mjs scripts/verify-commandcode-runtimes.mjs tests/scripts/commandcodeDesktopTransaction.test.mjs tests/scripts/commandcodeSuite.test.mjs
       - run: pnpm exec prettier --check scripts/commandcode-documents scripts/*commandcode-documents.mjs tests/scripts/commandcodeDocument*.test.mjs tests/scripts/helpers/documentFixtures.mjs tests/commandcodeDocumentsHook.test.js
 
       - name: Build signed updater and draft release
@@ -107,5 +109,5 @@ jobs:
           assert.ok(platform.url.endsWith('.app.tar.gz'));
           console.log(`Validated updater manifest for ${manifest.version}`);
           NODE
-          gh release upload "personal-$VERSION" scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs release/commandcode-documents-1.0.0.tar.gz --clobber
+          gh release upload "personal-$VERSION" scripts/commandcode-taste.mjs scripts/install-commandcode-taste.mjs release/commandcode-documents-1.0.0.tar.gz release/commandcode-extensions-1.0.0.tar.gz release/commandcode-extensions-1.0.0.tar.gz.sha256 --clobber
           gh release edit "personal-$VERSION" --draft=false --latest

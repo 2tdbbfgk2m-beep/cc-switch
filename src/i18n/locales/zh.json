@@ -1931,7 +1931,7 @@
     },
     "modelMetadataSourceCatalog": "内置模型目录",
     "manualReasoningLabel": "推理档位",
-    "manualReasoningHint": "手动选择优先于自动补全；清空则不提供档位。ultra 是本地编排模式，请求只使用已选的合法档位；默认最多 2 个子智能体并发、共享 64,000 token 预算。"
+    "manualReasoningHint": "这里只选择 API 档位，手动选择优先于自动补全。Ultra 在 CMD 中作为本地编排模式独立选择，实际请求遵守这些限制；默认 2 个子智能体并发、共享 64,000 token 预算。"
   },
   "copilot": {
     "automaticFormat": "由路由按模型自动选择",

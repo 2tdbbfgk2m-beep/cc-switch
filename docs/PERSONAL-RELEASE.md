@@ -221,9 +221,9 @@ Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`�
 此流程只读取公共模型目录，不上传密钥、会话或项目代码，不发送模型推理请求。
 目录是配置参考，无法证明自定义中转接口的实际实现；没有为此自动发起付费探测。
 
-### Command Code 推理档位与 Ultra 编排（2026-11-16，扩展 2.0.1）
+### Command Code 推理档位与 Ultra 编排（2026-11-16，扩展 3.0.0）
 
-模型行复用 Codex 的多选控件，保留 `none / minimal / low / medium / high / xhigh / max / ultra` 候选。
+模型行复用多选控件，API 候选为 `none / minimal / low / medium / high / xhigh / max`；Ultra 在 CMD 桌面端独立选择，不参与 API 能力冲突检查。旧配置中的 ultra 仍可读取，安装和检查不迁移已有 provider。
 手动声明的 API 档位子集、关闭状态及旧 boolean-only 兼容行为继续保留。候选不代表每个模型均支持；未知上游仍由用户声明支持集合，不发送付费探测。
 
 **Ultra 是本地执行模式，不能作为上游 API 参数。** 桌面端会给非空声明档位的模型提供 Ultra 选项，实际请求取声明白名单内最高的合法档位；已有较低的显式子任务档位保留。`ultra` 本身从 wire 候选中排除，已核实的 GPT-6 Sol/Astra 还会剔除不支持的 none/minimal。空白名单、未知能力、无有效交集直接拒绝，不回退到不受限制的模型默认值。不改写原有 providers.json 或存储的 provider 行。
@@ -253,7 +253,7 @@ Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`�
 
 本地估算与供应商账单不等价，不承诺精确金额上限。当前 Ultra 只接受可估算的文本上下文和可控制输出的 AI SDK 传输；图片/音频等媒体、禁用输出上限或无法逐请求计量的其他传输在发送前拒绝，可改用普通档位。DOCX/PDF 提取出的纯文本可照常使用。服务端不遵守输出限制或错误回报 usage 无法靠客户端完全约束。
 
-安装仍限定已核验的 0.1.61/0.1.62 版本与五个文件 SHA，先备份源码及签名，失败回滚。原 v1 扩展可直接升级；卸载时逐层恢复上一版扩展和签名，继续卸载直至恢复扩展前的应用状态。卸载发现其他补丁改变了文件/签名时拒绝覆盖。文档解析、偏好学习和授权文件不在修改范围。
+推理安装仍限定已核验的 0.1.61/0.1.62 版本与五个文件 SHA。文档与推理安装共用事务：先保存当前组件文件及应用签名，失败恢复本次快照。卸载只恢复该组件拥有的文件，再对当前应用重新签名，因此不覆盖另一组件的改动。目标源码或备份不匹配时拒绝覆盖。旧 v1/v2 安装和回滚链继续可读；新清单改为引用不可变备份中的上一版清单，避免递归嵌入历史。Ultra 运行时作为独立 ultra.mjs 安装并校验哈希。偏好学习、授权和会话文件不在修改范围。
 
 ```bash
 node scripts/install-commandcode-reasoning.mjs --check-upstream
@@ -266,3 +266,23 @@ node scripts/install-commandcode-reasoning.mjs --remove
 ```
 
 2026-11-16 审计的官方 [0.1.62](https://github.com/CommandCodeAI/desktop/releases/tag/v0.1.62) 原生仍只有五档，没有此 Ultra 编排策略。未来版本检查分别报告已审计的档位及编排状态；未知版本明确返回未知。仅发现八个验证字符串不视为已原生实现预算和编排，需要重新审计后适配，未知版本不强行修改。未创建定时监控。
+
+### 桌面扩展统一交付（2026-11-16）
+
+需要 Node.js 22+ 和 macOS。统一包目前适配 CMD 0.1.61（文档解析限定该版本）；单独的推理扩展兼容 0.1.61/0.1.62。未知版本拒绝修改。
+
+```bash
+pnpm build:commandcode-extensions
+# 解压 release/commandcode-extensions-1.0.0.tar.gz，进入解压目录：
+node scripts/install-commandcode-extensions.mjs --check
+node scripts/install-commandcode-extensions.mjs --dry-run
+# 退出 Command Code 后：
+node scripts/install-commandcode-extensions.mjs
+# 按需独立卸载其中一个组件：
+node scripts/install-commandcode-extensions.mjs --remove --component documents
+node scripts/install-commandcode-extensions.mjs --remove --component reasoning
+```
+
+统一包自带解析依赖、推理运行时、配置数据、安装器和文件哈希清单，无需整份源码或 npm install。发布同时附带 SHA-256 文件。默认安装文档和推理组件，在同一事务中只签名一次；Taste Mod 与 auth-sync 仅报告状态和哈希，不自动替换已有部署。包内仍保留原有独立安装命令及 Taste 安装脚本，便于显式操作。已有备份历史不会清理。
+
+个人发布工作流先验证本地单元测试，再下载固定 SHA 的官方 0.1.61/0.1.62 应用进行 SDK/原生子智能体离线验收；0.1.61 还验证真实应用副本上的联合安装、两种卸载顺序、失败回滚，以及解压后脱离仓库的安装包。测试禁用模型网络请求；下载的是公开应用发行文件。通过后构建并发布 CCS 和桌面扩展附件。工作流配置完成不等于云端运行成功，需单独检查 Actions。

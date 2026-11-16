@@ -130,5 +130,12 @@ const archive = path.join(
   root,
   `release/commandcode-documents-${PATCH_VERSION}.tar.gz`,
 );
+fs.mkdirSync(path.join(packageDir, "scripts/commandcode-desktop"), {
+  recursive: true,
+});
+fs.copyFileSync(
+  path.join(root, "scripts/commandcode-desktop/transaction.mjs"),
+  path.join(packageDir, "scripts/commandcode-desktop/transaction.mjs"),
+);
 execFileSync("tar", ["-czf", archive, "-C", packageDir, "."]);
 console.log(`Packaged installer: ${archive}`);

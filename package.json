@@ -17,7 +17,10 @@
     "dev:personal": "pnpm tauri dev --config src-tauri/tauri.personal.conf.json",
     "build:personal": "pnpm tauri build --config src-tauri/tauri.personal.conf.json",
     "build:commandcode-documents": "node scripts/build-commandcode-documents.mjs",
-    "install:commandcode-documents": "node scripts/install-commandcode-documents.mjs"
+    "install:commandcode-documents": "node scripts/install-commandcode-documents.mjs",
+    "build:commandcode-extensions": "node scripts/build-commandcode-extensions.mjs",
+    "install:commandcode-extensions": "node scripts/install-commandcode-extensions.mjs",
+    "check:commandcode-extensions": "node scripts/install-commandcode-extensions.mjs --check"
   },
   "keywords": [],
   "author": "Jason Young",

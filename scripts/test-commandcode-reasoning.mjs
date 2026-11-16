@@ -15,7 +15,8 @@ const source = path.resolve(
   appAt < 0 ? "/Applications/Command Code.app" : process.argv[appAt + 1],
   "Contents/Resources/app",
 );
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-effort-native-"));
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-effort-native-"));
+const root = path.join(tempRoot, "Contents/Resources/app");
 try {
   function linkModules(from, to, except) {
     fs.mkdirSync(to, { recursive: true });
@@ -70,6 +71,12 @@ try {
     networkCalls++;
     throw Error("Network is forbidden");
   };
+  const runtimeDir = path.resolve(root, "../cc-switch-reasoning");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.copyFileSync(
+    new URL("./commandcode-reasoning/ultra.mjs", import.meta.url),
+    path.join(runtimeDir, "ultra.mjs"),
+  );
   const h = await import(pathToFileURL(harnessFile));
   const records = {};
   for (const api of [
@@ -203,5 +210,5 @@ try {
   assert.equal(networkCalls, 0);
   console.log(JSON.stringify({ records, ultra, networkCalls }));
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true });
 }

@@ -1,3 +1,4 @@
+import { API_REASONING_LEVELS } from "@/config/reasoningLevels";
 import { ReasoningLevelsEditor } from "./ReasoningLevelsEditor";
 import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -490,7 +491,7 @@ export function OpenCodeFormFields({
         }
         const filled =
           modelDialect === "commandcode"
-            ? fillCommandCodeModel(model, metadata, id)
+            ? fillCommandCodeModel(model, metadata)
             : modelDialect === "dsh"
               ? fillDshModel(model, metadata, {
                   api: npm,
@@ -1064,6 +1065,7 @@ export function OpenCodeFormFields({
                   {modelDialect === "commandcode" && (
                     <div className="w-48 shrink-0">
                       <ReasoningLevelsEditor
+                        availableLevels={API_REASONING_LEVELS}
                         ariaLabel={`${key} ${t("providerForm.manualReasoningLabel", { defaultValue: "推理档位" })}`}
                         levels={
                           normalizeCommandCodeModel(model).reasoningEfforts
@@ -1080,7 +1082,7 @@ export function OpenCodeFormFields({
                         }}
                         hint={t("providerForm.manualReasoningHint", {
                           defaultValue:
-                            "手动选择优先于自动补全；清空则不提供档位。ultra 是本地编排模式，请求只使用已选的合法档位；默认最多 2 个子智能体并发、共享 64,000 token 预算。",
+                            "这里只选择 API 档位，手动选择优先于自动补全。Ultra 在 CMD 中作为本地编排模式独立选择，实际请求遵守这些限制；默认 2 个子智能体并发、共享 64,000 token 预算。",
                         })}
                       />
                     </div>
@@ -1124,7 +1126,6 @@ export function OpenCodeFormFields({
                                   model,
                                   checked,
                                   modelDialect,
-                                  key,
                                 ),
                               )
                             }

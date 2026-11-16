@@ -107,7 +107,6 @@ export function fillHermesModel(
 export function fillCommandCodeModel(
   model: OpenCodeModel,
   metadata: KnownModelMetadata,
-  _modelId = "",
 ): OpenCodeModel {
   const next = fillOpenCodeModel(model, metadata);
   return normalizeCommandCodeModel({

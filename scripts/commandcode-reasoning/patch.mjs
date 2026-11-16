@@ -5,7 +5,7 @@ export const LEVELS = JSON.parse(
     "utf8",
   ),
 );
-export const PATCH_VERSION = "2.0.1";
+export const PATCH_VERSION = "3.0.0";
 export const WIRE_LEVELS = LEVELS.filter((level) => level !== "ultra");
 const names = [
   "REASONING_EFFORTS",
@@ -71,24 +71,6 @@ export function patchSdk(source, kind) {
       before + JSON.stringify(WIRE_LEVELS) + after,
   );
 }
-export function sourcesSupportAll(sources) {
-  return (
-    names.every((name) => {
-      const matches = [...sources.harness.matchAll(pattern(name))];
-      return (
-        matches.length === 1 &&
-        WIRE_LEVELS.every((level) => values(matches[0][2]).includes(level))
-      );
-    }) &&
-    ["openai", "anthropic"].every((kind) => {
-      const matches = [...sources[kind].matchAll(sdkPattern(kind))];
-      return (
-        matches.length === 1 &&
-        WIRE_LEVELS.every((level) => values(matches[0][2]).includes(level))
-      );
-    })
-  );
-}
 
 function replaceOnce(source, before, after) {
   if (source.split(before).length !== 2)
@@ -96,7 +78,7 @@ function replaceOnce(source, before, after) {
   return source.replace(before, after);
 }
 export function patchFullHarness(source) {
-  if (source.includes("// CCS_ULTRA_RUNTIME_V2.0.1")) return source;
+  if (source.includes("// CCS_ULTRA_RUNTIME_V3")) return source;
   let result = patchHarness(source);
   result = replaceOnce(
     result,
@@ -138,13 +120,8 @@ export function patchFullHarness(source) {
     "  const cost = parseCost(raw.cost, warn, path39);",
     '  if(reasoningEfforts?.length && !reasoningEfforts.includes("ultra")) reasoningEfforts = [...reasoningEfforts,"ultra"];\n  const cost = parseCost(raw.cost, warn, path39);',
   );
-  const runtime = fs
-    .readFileSync(new URL("./ultra.mjs", import.meta.url), "utf8")
-    .replaceAll("export ", "");
   return (
-    "// CCS_ULTRA_RUNTIME_V2.0.1\n" +
-    runtime +
-    "\nconst ccsUltra = createUltraRuntime();\n" +
+    '// CCS_ULTRA_RUNTIME_V3\nimport {createUltraRuntime} from "../../../../../cc-switch-reasoning/ultra.mjs";\nconst ccsUltra = createUltraRuntime();\n' +
     result
   );
 }

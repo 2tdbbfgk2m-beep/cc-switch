@@ -6,10 +6,6 @@ import {
   commandCodeModelDefaults,
   normalizeCommandCodeConfig,
 } from "@/config/commandCodeProviderPresets";
-import {
-  modelSupportsReasoning,
-  withModelReasoning,
-} from "@/components/providers/forms/helpers/opencodeFormUtils";
 import { fillCommandCodeModel } from "@/components/providers/forms/modelMetadataFill";
 
 describe("Command Code native reasoning", () => {
@@ -38,25 +34,6 @@ describe("Command Code native reasoning", () => {
         reasoningEfforts: ["max", "low", "off", "max"],
       }),
     ).toMatchObject({ reasoning: true, reasoningEfforts: ["low", "max"] });
-  });
-
-  it("treats the native ladder as the switch state and clears it when disabled", () => {
-    const model = { name: "Example", reasoningEfforts: ["high", "max"] };
-    expect(modelSupportsReasoning(model, "commandcode")).toBe(true);
-    expect(withModelReasoning(model, false, "commandcode")).toMatchObject({
-      reasoning: false,
-      reasoningEfforts: [],
-    });
-    expect(
-      withModelReasoning(
-        { name: "Example", reasoningEfforts: [] },
-        true,
-        "commandcode",
-      ),
-    ).toMatchObject({
-      reasoning: true,
-      reasoningEfforts: ["low", "medium", "high"],
-    });
   });
 
   it("fills the exact metadata ladder while preserving explicit opt-out", () => {
@@ -174,11 +151,8 @@ describe("reviewed GPT reasoning defaults", () => {
       expect(saved.models["gpt-6.1-sol"].reasoningEfforts).toEqual(efforts);
       expect(normalizeCommandCodeConfig(saved)).toEqual(saved);
       expect(
-        fillCommandCodeModel(
-          model,
-          { reasoning: true, reasoningEfforts: full },
-          "gpt-6.1-sol",
-        ).reasoningEfforts,
+        fillCommandCodeModel(model, { reasoning: true, reasoningEfforts: full })
+          .reasoningEfforts,
       ).toEqual(efforts);
       expect(saved.models["gpt-6.1-sol"].options).toEqual(model.options);
     },
@@ -199,7 +173,6 @@ describe("reviewed GPT reasoning defaults", () => {
         fillCommandCodeModel(
           { name: "Keep legacy", ...model },
           { reasoning: true, reasoningEfforts: full },
-          "gpt-6.1-sol",
         ).reasoningEfforts,
       ).toEqual(saved.reasoningEfforts);
     }
@@ -209,7 +182,6 @@ describe("reviewed GPT reasoning defaults", () => {
       fillCommandCodeModel(
         { name: "Custom name" },
         { reasoning: true, reasoningEfforts: ["low", "medium", "high"] },
-        "gpt-6.1-sol",
       ),
     ).toMatchObject({
       name: "Custom name",
@@ -223,52 +195,6 @@ describe("reviewed GPT reasoning defaults", () => {
         },
       }).models["gpt-6.1-sol"].reasoningEfforts,
     ).toEqual(full);
-  });
-  it("re-enables known GPT with its native tiers, without widening a current restriction", () => {
-    expect(
-      withModelReasoning(
-        { name: "GPT", reasoning: false, reasoningEfforts: [] },
-        true,
-        "commandcode",
-        "gpt-6.1-sol",
-      ).reasoningEfforts,
-    ).toEqual(full);
-    expect(
-      withModelReasoning(
-        { name: "GPT", reasoningEfforts: ["high"] },
-        true,
-        "commandcode",
-        "gpt-6.1-sol",
-      ).reasoningEfforts,
-    ).toEqual(["high"]);
-  });
-  it("restores legacy limits when reasoning is explicitly re-enabled", () => {
-    expect(
-      withModelReasoning(
-        {
-          name: "Legacy GPT",
-          reasoning: false,
-          reasoningEfforts: [],
-          thinking: { effortOptions: ["high"] },
-        },
-        true,
-        "commandcode",
-        "gpt-6.1-sol",
-      ).reasoningEfforts,
-    ).toEqual(["high"]);
-    expect(
-      withModelReasoning(
-        {
-          name: "Legacy GPT",
-          reasoning: false,
-          reasoningEfforts: [],
-          variants: { low: {} },
-        },
-        true,
-        "commandcode",
-        "gpt-6.1-sol",
-      ).reasoningEfforts,
-    ).toEqual(["low"]);
   });
   it("does not guess capabilities for unknown future GPT IDs", () => {
     expect(

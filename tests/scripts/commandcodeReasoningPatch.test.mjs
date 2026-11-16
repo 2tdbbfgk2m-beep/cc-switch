@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   patchHarness,
   patchSdk,
-  sourcesSupportAll,
 } from "../../scripts/commandcode-reasoning/patch.mjs";
 const five = '"low", "medium", "high", "xhigh", "max"';
 const source = `var REASONING_EFFORTS = /* @__PURE__ */ new Set(["off",${five}]);\nvar VALID_SKILL_EFFORTS = new Set([${five},"inherit"]);\nvar VALID_REASONING_EFFORTS = ["off",${five}];\nvar VALID_EFFORTS = new Set([${five}]);\nvar DEFAULT_REASONING_EFFORTS=["low","medium","high"];`;
@@ -37,17 +36,12 @@ test("extends every validation path without changing builtin model recommendatio
   assert.deepEqual(values.DEFAULT_REASONING_EFFORTS, ["low", "medium", "high"]);
   assert.equal(patchHarness(patched), patched);
 });
-test("extends SDK effort validation, and recognizes an upstream that already supports all tiers", () => {
+test("extends SDK wire effort validation idempotently", () => {
   const patched = {
     harness: patchHarness(source),
     openai: patchSdk(openai, "openai"),
     anthropic: patchSdk(anthropic, "anthropic"),
   };
-  assert.equal(
-    sourcesSupportAll({ harness: source, openai, anthropic }),
-    false,
-  );
-  assert.equal(sourcesSupportAll(patched), true);
   assert.equal(patchSdk(patched.openai, "openai"), patched.openai);
 });
 test("refuses an unknown validation layout rather than patching unrelated model data", () => {

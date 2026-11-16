@@ -74,7 +74,7 @@ test("installation is idempotent and removal restores exact originals including 
   applyInstall(plan, { backupRoot: x.backupRoot, sign: () => {} });
   assert.equal(inspectApp(x.app).status, "patched");
   assert.equal(prepareInstall(x.app, { trusted: x.trusted }).unchanged, true);
-  removeInstall(x.app, { verify: () => {} });
+  removeInstall(x.app, { sign: () => {}, verify: () => {} });
   assert.deepEqual(
     fs.readFileSync(path.join(x.app, TARGETS.harness.path)),
     original,
@@ -134,6 +134,7 @@ test("removal verification failure restores the still-working extension", (t) =>
   assert.throws(
     () =>
       removeInstall(x.app, {
+        sign: () => {},
         verify: () => {
           throw Error("verification failed");
         },
@@ -268,16 +269,31 @@ for (const failSigning of [false, true])
         backupRoot: x.backupRoot,
         sign: () => {},
       });
-      removeInstall(x.app, { verify: () => {} });
+      removeInstall(x.app, { sign: () => {}, verify: () => {} });
       assert.equal(fs.readFileSync(installedFile, "utf8"), intermediateText);
       assert.equal(inspectApp(x.app).status, "upgrade-required");
-      removeInstall(x.app, { verify: () => {} });
+      removeInstall(x.app, { sign: () => {}, verify: () => {} });
       assert.equal(fs.readFileSync(installedFile, "utf8"), before);
       assert.equal(inspectApp(x.app).status, "upgrade-required");
-      removeInstall(x.app, { verify: () => {} });
+      removeInstall(x.app, { sign: () => {}, verify: () => {} });
       assert.equal(
         fs.readFileSync(path.join(x.app, TARGETS.harness.path), "utf8"),
         original,
       );
     },
   );
+test("runtime is installed as a hashed standalone module and manifests reference history without nesting", (t) => {
+  const x = fixture(t);
+  applyInstall(prepareInstall(x.app, { trusted: x.trusted }), {
+    backupRoot: x.backupRoot,
+    sign: () => {},
+  });
+  const dir = path.join(x.app, "Contents/Resources/cc-switch-reasoning");
+  assert.ok(fs.existsSync(path.join(dir, "ultra.mjs")));
+  const m = JSON.parse(fs.readFileSync(path.join(dir, "installed.json")));
+  assert.equal(
+    hash(fs.readFileSync(path.join(dir, "ultra.mjs"))),
+    m.runtimeHash,
+  );
+  assert.equal(m.previousManifest, undefined);
+});

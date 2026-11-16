@@ -203,3 +203,43 @@ it("does not infer effort support after an endpoint explicitly disables reasonin
   });
   expect(result).toMatchObject({ reasoning: false, reasoningEfforts: [] });
 });
+
+it.each(["commandcode", "codex"] as const)(
+  "separates local Ultra from %s API capabilities without mutating legacy config",
+  (dialect) => {
+    const config = {
+      reasoning: true,
+      ...(dialect === "codex"
+        ? { reasoningLevels: ["high", "ultra"] }
+        : { reasoningEfforts: ["high", "ultra"] }),
+    };
+    const before = JSON.stringify(config);
+    const current = modelMetadataFromConfig(config, dialect);
+    expect(current.reasoningEfforts).toEqual(["high"]);
+    expect(
+      inspectModelMetadata(
+        current,
+        {
+          reasoning: true,
+          reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+        },
+        ["reasoningEfforts"],
+      ),
+    ).toEqual([]);
+    expect(JSON.stringify(config)).toBe(before);
+  },
+);
+it("reports a legacy Ultra-only model as missing API tiers instead of disabled", () => {
+  const current = modelMetadataFromConfig(
+    { reasoningEfforts: ["ultra"] },
+    "commandcode",
+  );
+  expect(current.reasoning).toBe(true);
+  expect(
+    inspectModelMetadata(
+      current,
+      { reasoning: true, reasoningEfforts: ["high"] },
+      ["reasoningEfforts"],
+    ),
+  ).toEqual([{ field: "reasoningEfforts", kind: "missing" }]);
+});

@@ -21,5 +21,15 @@
     "nativeEfforts": ["low", "medium", "high", "xhigh", "max"],
     "url": "https://github.com/CommandCodeAI/desktop/releases/tag/v0.1.62",
     "ultraOrchestration": false
+  },
+  "archives": {
+    "0.1.61": {
+      "url": "https://github.com/CommandCodeAI/desktop/releases/download/v0.1.61/CommandCode-0.1.61-macOS-Apple-Silicon-arm64.zip",
+      "sha256": "8473e010c8206f88fbf38023ea1c1d8ec4d98e7efad3aa4060e850871ec06a1a"
+    },
+    "0.1.62": {
+      "url": "https://github.com/CommandCodeAI/desktop/releases/download/v0.1.62/CommandCode-0.1.62-macOS-Apple-Silicon-arm64.zip",
+      "sha256": "51461fa68840ae8076e16651d2f624e9906beac1b7fc128a4d672559bc8119cb"
+    }
   }
 }

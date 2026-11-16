@@ -25,16 +25,7 @@ const suggestions = () => [
 beforeAll(() => {
   Element.prototype.scrollIntoView ??= vi.fn();
 });
-const tiers = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-];
+const tiers = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 function Harness({
   empty = false,
   holdManual = false,
@@ -69,7 +60,7 @@ function Harness({
           if (
             holdManual &&
             Array.isArray(next["future-model"]?.reasoningEfforts) &&
-            next["future-model"].reasoningEfforts.includes("ultra")
+            next["future-model"].reasoningEfforts.includes("max")
           )
             return;
           setModels(next);
@@ -87,24 +78,28 @@ describe("manual Command Code reasoning tiers", () => {
     fireEvent.click(
       screen.getByRole("combobox", { name: "future-model 推理档位" }),
     );
+    expect(
+      screen.queryByRole("option", { name: "ultra" }),
+    ).not.toBeInTheDocument();
     for (const tier of tiers)
       expect(screen.getByRole("option", { name: tier })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "minimal" }));
-    fireEvent.click(screen.getByRole("option", { name: "ultra" }));
+    fireEvent.click(screen.getByRole("option", { name: "max" }));
     await waitFor(() =>
       expect(
         JSON.parse(screen.getByTestId("native").textContent!)["future-model"],
       ).toMatchObject({
         reasoning: true,
-        reasoningEfforts: ["minimal", "ultra"],
+        reasoningEfforts: ["minimal", "max"],
       }),
     );
     fireEvent.click(screen.getByRole("option", { name: "minimal" }));
-    fireEvent.click(screen.getByRole("option", { name: "ultra" }));
+    fireEvent.click(screen.getByRole("option", { name: "max" }));
     expect(
       JSON.parse(screen.getByTestId("native").textContent!)["future-model"],
     ).toMatchObject({ reasoning: false, reasoningEfforts: [] });
   });
+
   it("keeps minimal/ultra through normalization and later metadata fills", () => {
     const model = { name: "m", reasoningEfforts: ["minimal", "ultra"] };
     expect(normalizeCommandCodeModel(model).reasoningEfforts).toEqual([
@@ -187,7 +182,7 @@ it.each(["subset", "off", "automatic", "delayed-parent"])(
       fireEvent.click(screen.getByRole("option", { name: "minimal" }));
       if (mode === "off")
         fireEvent.click(screen.getByRole("option", { name: "minimal" }));
-      else fireEvent.click(screen.getByRole("option", { name: "ultra" }));
+      else fireEvent.click(screen.getByRole("option", { name: "max" }));
     }
     release();
     await waitFor(() =>
@@ -206,7 +201,7 @@ it.each(["subset", "off", "automatic", "delayed-parent"])(
         .reasoningEfforts,
     ).toEqual(
       mode === "subset" || mode === "delayed-parent"
-        ? ["minimal", "ultra"]
+        ? ["minimal", "max"]
         : mode === "off"
           ? []
           : ["low", "high"],

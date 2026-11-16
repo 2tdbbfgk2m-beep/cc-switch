@@ -74,6 +74,17 @@ export function modelMetadataFromConfig(
       )
       .map(([key]) => key);
   }
+  // Local orchestration is not a model/API capability. Keep legacy source objects untouched.
+  if (
+    (dialect === "commandcode" || dialect === "codex") &&
+    efforts?.includes("ultra")
+  ) {
+    efforts = efforts.filter((level) => level !== "ultra");
+    if (!efforts.length) {
+      efforts = undefined;
+      reasoning = true;
+    }
+  }
   if (
     efforts !== undefined &&
     (reasoning === undefined || dialect === "commandcode")
