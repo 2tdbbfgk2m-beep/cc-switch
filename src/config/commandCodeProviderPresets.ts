@@ -10,7 +10,7 @@ import {
 } from "./mcodeProviderPresets";
 import { piProviderPresets } from "./piProviderPresets";
 import {
-  COMMANDCODE_EFFORTS,
+  COMMANDCODE_REVIEWED_EFFORTS,
   commandCodeEfforts,
   normalizeCommandCodeModel,
   reviewedCommandCodeGptEfforts,
@@ -42,9 +42,9 @@ export const commandCodeProviderPresets = mcodeProviderPresets.map((preset) => {
           );
           const map = reviewed?.thinkingLevelMap;
           const values = nativeClaudeIds.has(id)
-            ? [...COMMANDCODE_EFFORTS]
+            ? [...COMMANDCODE_REVIEWED_EFFORTS]
             : model.reasoning && map
-              ? COMMANDCODE_EFFORTS.map((level) =>
+              ? COMMANDCODE_REVIEWED_EFFORTS.map((level) =>
                   map[level] === undefined
                     ? ["low", "medium", "high"].includes(level)
                       ? level
@@ -100,7 +100,7 @@ function reviewedCommandCodeModel(
     return {
       name: id,
       reasoning: true,
-      reasoningEfforts: [...COMMANDCODE_EFFORTS],
+      reasoningEfforts: [...COMMANDCODE_REVIEWED_EFFORTS],
     };
   return undefined;
 }

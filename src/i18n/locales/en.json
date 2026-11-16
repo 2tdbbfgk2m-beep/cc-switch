@@ -1929,7 +1929,9 @@
       },
       "nativeDescription": "These capabilities are managed by the native client. This view checks public model metadata without adding unsupported configuration fields."
     },
-    "modelMetadataSourceCatalog": "bundled catalog"
+    "modelMetadataSourceCatalog": "bundled catalog",
+    "manualReasoningLabel": "Reasoning tiers",
+    "manualReasoningHint": "Candidates do not imply model support. Manual choices override suggestions; clear all to advertise no tiers. Ultra is a custom upstream value, without Codex task delegation."
   },
   "copilot": {
     "automaticFormat": "Selected automatically by routing",

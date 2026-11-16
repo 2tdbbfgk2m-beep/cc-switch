@@ -1026,7 +1026,8 @@ describe("OpenCodeFormFields", () => {
     });
   });
 
-  it("edits the exact Command Code native ladder and disables it atomically", () => {
+  it("edits the exact Command Code native ladder with the shared picker", () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
     const onModelsChange = vi.fn();
     const model = { name: "Example", reasoningEfforts: ["high", "max"] };
     renderOpenCodeForm({
@@ -1034,26 +1035,14 @@ describe("OpenCodeFormFields", () => {
       onModelsChange,
       models: { "kimi-k2": model },
     });
-    expandFirstModel();
-    expect(screen.getByLabelText("pi.form.reasoning")).toBeChecked();
-    fireEvent.click(
-      screen.getByRole("button", { name: "pi.form.thinkingLevelsLabel" }),
-    );
-    expect(screen.getByLabelText("pi.form.thinkingLevels.max")).toBeChecked();
-    expect(
-      screen.queryByLabelText("pi.form.thinkingLevels.off"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("pi.form.thinkingLevels.low"));
+    fireEvent.click(screen.getByRole("combobox", { name: "kimi-k2 推理档位" }));
+    fireEvent.click(screen.getByRole("option", { name: "low" }));
     expect(onModelsChange).toHaveBeenLastCalledWith({
       "kimi-k2": {
         ...model,
         reasoning: true,
         reasoningEfforts: ["low", "high", "max"],
       },
-    });
-    fireEvent.click(screen.getByLabelText("pi.form.reasoning"));
-    expect(onModelsChange).toHaveBeenLastCalledWith({
-      "kimi-k2": { ...model, reasoning: false, reasoningEfforts: [] },
     });
   });
 

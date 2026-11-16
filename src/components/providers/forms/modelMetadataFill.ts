@@ -112,6 +112,15 @@ export function fillCommandCodeModel(
   const next = fillOpenCodeModel(model, metadata);
   return normalizeCommandCodeModel({
     ...next,
+    // New rows with a reasoning flag alone await explicit tier choices. Legacy
+    // boolean-only rows retain their native compatibility defaults.
+    ...(model.reasoning === undefined &&
+    model.reasoningEfforts === undefined &&
+    model.thinking === undefined &&
+    model.variants === undefined &&
+    metadata.reasoningEfforts === undefined
+      ? { reasoning: false, reasoningEfforts: [] }
+      : {}),
     ...(model.reasoningEfforts === undefined &&
     model.reasoning !== false &&
     metadata.reasoning !== false &&

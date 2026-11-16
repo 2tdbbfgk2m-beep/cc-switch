@@ -1,7 +1,10 @@
 import type { OpenCodeModel } from "@/types";
 
 // Command Code's providers.json accepts this array, not Pi/DSH maps or MCode options.
-export const COMMANDCODE_EFFORTS = [
+export { REASONING_LEVELS as COMMANDCODE_EFFORTS } from "./reasoningLevels";
+import { REASONING_LEVELS as COMMANDCODE_EFFORTS } from "./reasoningLevels";
+// Verified preset recommendations stay separate from the full manual candidate list.
+export const COMMANDCODE_REVIEWED_EFFORTS = [
   "low",
   "medium",
   "high",

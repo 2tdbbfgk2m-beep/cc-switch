@@ -220,3 +220,33 @@ Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`�
 
 此流程只读取公共模型目录，不上传密钥、会话或项目代码，不发送模型推理请求。
 目录是配置参考，无法证明自定义中转接口的实际实现；没有为此自动发起付费探测。
+
+### Command Code 手动推理档位（2026-11-16）
+
+Command Code 的模型行现在复用 Codex 的多选控件，始终提供
+`none / minimal / low / medium / high / xhigh / max / ultra` 候选。
+这些是候选值，不代表每个模型支持全部；已核实的模型仍按原资料建议勾选五档或其子集。
+新模型只有 reasoning 布尔值、没有档位资料时等待手动选择，不自动虚构三档；旧 boolean-only 配置保留兼容默认。
+手动勾选或清空后，自动补全不覆盖；清空后不提供档位，保存为原生 `reasoning:false, reasoningEfforts:[]`；这不是向上游发送 `none`，不承诺关闭模型自身的思考。
+列表拉取、手动新增使用相同控件，填写其他字段或取消不会改变原有 provider。
+`ultra` 在此是用户自行声明的上游值，不包含 Codex 的自动任务委派，也不会自动映射成 max。
+
+Command Code 0.1.61 及已核验的官方 0.1.62 原生解析器仍只接受五档。
+因此额外提供版本及 SHA 限定的桌面端兼容扩展，修改 harness effort 校验及 OpenAI/Anthropic SDK 的 CJS、ESM 校验，允许显式声明的八档进入原生菜单数据与请求体。
+不改内置模型的推荐档位，不写用户 providers/auth/config/history；安装前退出桌面版，先备份源码及签名，签名失败回滚。
+文档解析和偏好学习使用的应用文件不在此扩展的修改范围。
+
+```bash
+node scripts/install-commandcode-reasoning.mjs --check-upstream  # 查官方最新版；未审计版本明确返回 unknown
+node scripts/install-commandcode-reasoning.mjs --check           # 当前安装支持状态
+node scripts/install-commandcode-reasoning.mjs --dry-run         # 只预检，不改应用
+node scripts/install-commandcode-reasoning.mjs                   # 退出 Command Code 后安装
+node scripts/test-commandcode-reasoning.mjs                      # 副本上真实 SDK 三协议八档测试，禁止真实网络
+node --test tests/scripts/commandcodeReasoning*.test.mjs          # 安装/卸载/回滚/原生支持检测
+node scripts/install-commandcode-reasoning.mjs --remove          # 退出后卸载，签名或文件变化时拒绝覆盖
+```
+
+官方版本检查只读取公开 GitHub Release 数据，不使用用户模型 API。
+若当前原生代码已支持全部候选，安装器跳过补丁；未知版本、布局或校验不符时拒绝修改，需重新核验。
+桌面版官方更新会替换应用内扩展；更新后运行 `--check` 和 `--dry-run`，原生已经实现时无需重装扩展。
+2026-11-16 核验到的最新版为 [0.1.62](https://github.com/CommandCodeAI/desktop/releases/tag/v0.1.62)，发布说明为 Linux 启动修复，解包确认仍是五档。

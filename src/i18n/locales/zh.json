@@ -1929,7 +1929,9 @@
       },
       "nativeDescription": "这些能力由原生客户端管理；这里只核对公共模型资料，不向配置写入额外字段。"
     },
-    "modelMetadataSourceCatalog": "内置模型目录"
+    "modelMetadataSourceCatalog": "内置模型目录",
+    "manualReasoningLabel": "推理档位",
+    "manualReasoningHint": "候选不代表模型支持。手动勾选优先于自动补全；清空则不提供档位。ultra 是自定义上游值，不包含 Codex 的自动委派。"
   },
   "copilot": {
     "automaticFormat": "由路由按模型自动选择",

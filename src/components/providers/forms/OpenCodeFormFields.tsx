@@ -1,3 +1,4 @@
+import { ReasoningLevelsEditor } from "./ReasoningLevelsEditor";
 import { ModelMetadataReview } from "./ModelMetadataReview";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -52,7 +53,12 @@ import type { ProviderCategory, OpenCodeModel } from "@/types";
 import { useCommittableRef } from "@/hooks/useLatestRef";
 import { useModelMetadataFill } from "@/hooks/useModelMetadataFill";
 import type { PresetModelSource } from "@/lib/modelMetadata";
-import { opencodePresetModelSources } from "@/config/presetModelMetadata";
+import {
+  opencodePresetModelSources,
+  commandCodePresetModelSources,
+  mcodePresetModelSources,
+  dshPresetModelSources,
+} from "@/config/presetModelMetadata";
 import {
   fillOpenCodeModel,
   fillMcodeModel,
@@ -60,10 +66,7 @@ import {
   fillCommandCodeModel,
   metadataFilledAnything,
 } from "./modelMetadataFill";
-import {
-  COMMANDCODE_EFFORTS,
-  normalizeCommandCodeModel,
-} from "@/config/commandcodeReasoning";
+import { normalizeCommandCodeModel } from "@/config/commandcodeReasoning";
 import { commandCodeModelDefaults } from "@/config/commandCodeProviderPresets";
 
 /**
@@ -330,7 +333,7 @@ export function OpenCodeFormFields({
   allowBuiltinDefaults = false,
   modelDialect = "opencode",
   providerCompat,
-  presetModelSources = opencodePresetModelSources,
+  presetModelSources: customPresetModelSources,
   apiFormats = opencodeNpmPackages,
   npm,
   onNpmChange,
@@ -351,6 +354,14 @@ export function OpenCodeFormFields({
   onExtraOptionsChange,
 }: OpenCodeFormFieldsProps) {
   const { t } = useTranslation();
+  const presetModelSources =
+    customPresetModelSources ??
+    {
+      commandcode: commandCodePresetModelSources,
+      mcode: mcodePresetModelSources,
+      dsh: dshPresetModelSources,
+      opencode: opencodePresetModelSources,
+    }[modelDialect];
 
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
@@ -461,11 +472,13 @@ export function OpenCodeFormFields({
         if (!Object.prototype.hasOwnProperty.call(current, id)) return false;
         let model = current[id];
         const auto = autoModelMetadata.current.get(id);
+        const ownsAutomaticReasoning =
+          !!auto &&
+          model.reasoning === auto.reasoning &&
+          model.reasoningEfforts === auto.reasoningEfforts;
         if (
           modelDialect === "commandcode" &&
-          auto &&
-          model.reasoning === auto.reasoning &&
-          model.reasoningEfforts === auto.reasoningEfforts &&
+          ownsAutomaticReasoning &&
           (metadata.reasoningEfforts !== undefined ||
             metadata.reasoning === false)
         ) {
@@ -488,6 +501,7 @@ export function OpenCodeFormFields({
                 ? fillMcodeModel(model, metadata)
                 : fillOpenCodeModel(model, metadata);
         if (!metadataFilledAnything(current[id], filled)) return false;
+        if (ownsAutomaticReasoning) autoModelMetadata.current.set(id, filled);
         commitModels({ ...current, [id]: filled });
         return true;
       },
@@ -587,7 +601,7 @@ export function OpenCodeFormFields({
   };
 
   const updateModel = (modelKey: string, model: OpenCodeModel) =>
-    onModelsChange({ ...models, [modelKey]: model });
+    commitModels({ ...modelsRef.current, [modelKey]: model });
 
   const handleModelLimitChange = (
     modelKey: string,
@@ -991,6 +1005,13 @@ export function OpenCodeFormFields({
               <span className="flex-1">
                 {t("opencode.modelName", { defaultValue: "显示名称" })}
               </span>
+              {modelDialect === "commandcode" && (
+                <span className="w-48 shrink-0">
+                  {t("providerForm.manualReasoningLabel", {
+                    defaultValue: "推理档位",
+                  })}
+                </span>
+              )}
               <span className="w-9" />
             </div>
             {Object.entries(models).map(([key, model]) => (
@@ -1040,6 +1061,30 @@ export function OpenCodeFormFields({
                     })}
                     className="flex-1"
                   />
+                  {modelDialect === "commandcode" && (
+                    <div className="w-48 shrink-0">
+                      <ReasoningLevelsEditor
+                        ariaLabel={`${key} ${t("providerForm.manualReasoningLabel", { defaultValue: "推理档位" })}`}
+                        levels={
+                          normalizeCommandCodeModel(model).reasoningEfforts
+                        }
+                        onLevelsChange={(levels) => {
+                          autoModelMetadata.current.delete(key);
+                          updateModel(
+                            key,
+                            normalizeCommandCodeModel({
+                              ...model,
+                              reasoningEfforts: levels ?? [],
+                            }),
+                          );
+                        }}
+                        hint={t("providerForm.manualReasoningHint", {
+                          defaultValue:
+                            "候选不代表模型支持。手动勾选优先于自动补全；清空则不提供档位。ultra 是自定义上游值，不包含 Codex 的自动委派。",
+                        })}
+                      />
+                    </div>
+                  )}
                   <HoverTip content={t("common.delete")}>
                     <Button
                       aria-label={t("common.delete")}
@@ -1058,29 +1103,34 @@ export function OpenCodeFormFields({
                 {expandedModels.has(key) && (
                   <div className="ml-9 grid gap-3 border-l-2 border-muted pl-4 sm:grid-cols-2">
                     <div className="flex min-h-9 flex-wrap items-center gap-x-8 gap-y-2 sm:col-span-2">
-                      <div className="flex items-center gap-2.5">
-                        <Label
-                          htmlFor={`opencode-${key}-reasoning`}
-                          className="cursor-pointer"
-                        >
-                          {t("pi.form.reasoning")}
-                        </Label>
-                        <Switch
-                          id={`opencode-${key}-reasoning`}
-                          checked={modelSupportsReasoning(model, modelDialect)}
-                          onCheckedChange={(checked) =>
-                            updateModel(
-                              key,
-                              withModelReasoning(
-                                model,
-                                checked,
-                                modelDialect,
+                      {modelDialect !== "commandcode" && (
+                        <div className="flex items-center gap-2.5">
+                          <Label
+                            htmlFor={`opencode-${key}-reasoning`}
+                            className="cursor-pointer"
+                          >
+                            {t("pi.form.reasoning")}
+                          </Label>
+                          <Switch
+                            id={`opencode-${key}-reasoning`}
+                            checked={modelSupportsReasoning(
+                              model,
+                              modelDialect,
+                            )}
+                            onCheckedChange={(checked) =>
+                              updateModel(
                                 key,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
+                                withModelReasoning(
+                                  model,
+                                  checked,
+                                  modelDialect,
+                                  key,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                      )}
                       <div className="flex items-center gap-2.5">
                         <Label
                           htmlFor={`opencode-${key}-image-input`}
@@ -1144,29 +1194,6 @@ export function OpenCodeFormFields({
                           efforts={model.reasoningEfforts}
                           onChange={(reasoningEfforts) =>
                             updateModel(key, { ...model, reasoningEfforts })
-                          }
-                        />
-                      )}
-
-                    {modelDialect === "commandcode" &&
-                      modelSupportsReasoning(model, modelDialect) && (
-                        <ReasoningEffortsField
-                          modelKey={key}
-                          levels={COMMANDCODE_EFFORTS}
-                          efforts={Object.fromEntries(
-                            (
-                              normalizeCommandCodeModel(model)
-                                .reasoningEfforts as string[]
-                            ).map((level) => [level, level]),
-                          )}
-                          onChange={(efforts) =>
-                            updateModel(
-                              key,
-                              normalizeCommandCodeModel({
-                                ...model,
-                                reasoningEfforts: Object.keys(efforts),
-                              }),
-                            )
                           }
                         />
                       )}
