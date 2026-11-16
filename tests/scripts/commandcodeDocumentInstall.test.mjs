@@ -8,7 +8,10 @@ import {
   validateBundle,
   prepareInstall,
   applyInstall,
+  removeInstall,
 } from "../../scripts/commandcode-documents/install.mjs";
+
+import { desktop } from "../../scripts/commandcode-documents/patch.mjs";
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cc-doc-test-"));
@@ -116,4 +119,38 @@ test("unsupported app version or hash is rejected", (t) => {
     '{"version":"0.2.0"}',
   );
   assert.throws(() => prepareInstall(f.appDir, f.bundleDir), /仅支持/);
+});
+
+test("official renderer identity is accepted and removal restores that exact identity", (t) => {
+  const f = fixture(t),
+    previous = desktop.officialSha256;
+  t.after(() => {
+    desktop.officialSha256 = previous;
+  });
+  const source = Object.values(desktop.markers).join("\n");
+  desktop.officialSha256 = hash(source);
+  const renderer = path.join(
+    f.appDir,
+    "Contents/Resources/app/out/renderer/assets",
+    desktop.renderer,
+  );
+  fs.mkdirSync(path.dirname(renderer), { recursive: true });
+  fs.writeFileSync(renderer, source + "tampered");
+  assert.throws(() => prepareInstall(f.appDir, f.bundleDir), /哈希不匹配/);
+  fs.writeFileSync(renderer, source);
+  const plan = prepareInstall(f.appDir, f.bundleDir);
+  const installed = applyInstall(plan, {
+    backupRoot: path.join(f.root, "backups"),
+    sign: () => {},
+  });
+  removeInstall(f.appDir, {
+    backupRoot: path.join(f.root, "backups"),
+    sign: () => {},
+  });
+  assert.equal(fs.readFileSync(renderer, "utf8"), source);
+  assert.equal(fs.existsSync(plan.addon), false);
+  assert.equal(
+    fs.readFileSync(path.join(installed.backupDir, "renderer.js"), "utf8"),
+    source,
+  );
 });

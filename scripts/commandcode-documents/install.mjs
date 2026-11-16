@@ -9,6 +9,8 @@ import {
 } from "../commandcode-desktop/transaction.mjs";
 export { hash };
 const owner = "cc-switch-documents";
+const isSupportedRenderer = (digest) =>
+  [desktop.sha256, desktop.officialSha256].includes(digest);
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 function ensure(condition, message) {
   if (!condition) throw new Error(message);
@@ -82,7 +84,7 @@ export function prepareInstall(appDir, bundleDir) {
     );
     return { appDir, renderer, addon, unchanged: true };
   }
-  ensure(hash(source) === desktop.sha256, "附件代码哈希不匹配，未修改应用。");
+  ensure(isSupportedRenderer(hash(source)), "附件代码哈希不匹配，未修改应用。");
   return {
     appDir,
     bundleDir,
@@ -154,7 +156,7 @@ export function removeInstall(
   const installed = readJson(path.join(addon, "installed.json"));
   ensure(
     installed.owner === owner &&
-      installed.originalHash === desktop.sha256 &&
+      isSupportedRenderer(installed.originalHash) &&
       hash(fs.readFileSync(renderer)) === installed.patchedHash,
     "补丁状态不匹配，未修改应用。",
   );
@@ -162,7 +164,10 @@ export function removeInstall(
   const original = fs.readFileSync(
     path.join(installed.backupDir, "renderer.js"),
   );
-  ensure(hash(original) === desktop.sha256, "原始备份不匹配，未修改应用。");
+  ensure(
+    hash(original) === installed.originalHash,
+    "原始备份不匹配，未修改应用。",
+  );
   return transact({
     app: appDir,
     files: transactionFiles({ appDir, renderer, addon }),
