@@ -221,32 +221,48 @@ Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`�
 此流程只读取公共模型目录，不上传密钥、会话或项目代码，不发送模型推理请求。
 目录是配置参考，无法证明自定义中转接口的实际实现；没有为此自动发起付费探测。
 
-### Command Code 手动推理档位（2026-11-16）
+### Command Code 推理档位与 Ultra 编排（2026-11-16，扩展 2.0.1）
 
-Command Code 的模型行现在复用 Codex 的多选控件，始终提供
-`none / minimal / low / medium / high / xhigh / max / ultra` 候选。
-这些是候选值，不代表每个模型支持全部；已核实的模型仍按原资料建议勾选五档或其子集。
-新模型只有 reasoning 布尔值、没有档位资料时等待手动选择，不自动虚构三档；旧 boolean-only 配置保留兼容默认。
-手动勾选或清空后，自动补全不覆盖；清空后不提供档位，保存为原生 `reasoning:false, reasoningEfforts:[]`；这不是向上游发送 `none`，不承诺关闭模型自身的思考。
-列表拉取、手动新增使用相同控件，填写其他字段或取消不会改变原有 provider。
-`ultra` 在此是用户自行声明的上游值，不包含 Codex 的自动任务委派，也不会自动映射成 max。
+模型行复用 Codex 的多选控件，保留 `none / minimal / low / medium / high / xhigh / max / ultra` 候选。
+手动声明的 API 档位子集、关闭状态及旧 boolean-only 兼容行为继续保留。候选不代表每个模型均支持；未知上游仍由用户声明支持集合，不发送付费探测。
 
-Command Code 0.1.61 及已核验的官方 0.1.62 原生解析器仍只接受五档。
-因此额外提供版本及 SHA 限定的桌面端兼容扩展，修改 harness effort 校验及 OpenAI/Anthropic SDK 的 CJS、ESM 校验，允许显式声明的八档进入原生菜单数据与请求体。
-不改内置模型的推荐档位，不写用户 providers/auth/config/history；安装前退出桌面版，先备份源码及签名，签名失败回滚。
-文档解析和偏好学习使用的应用文件不在此扩展的修改范围。
+**Ultra 是本地执行模式，不能作为上游 API 参数。** 桌面端会给非空声明档位的模型提供 Ultra 选项，实际请求取声明白名单内最高的合法档位；已有较低的显式子任务档位保留。`ultra` 本身从 wire 候选中排除，已核实的 GPT-6 Sol/Astra 还会剔除不支持的 none/minimal。空白名单、未知能力、无有效交集直接拒绝，不回退到不受限制的模型默认值。不改写原有 providers.json 或存储的 provider 行。
 
-```bash
-node scripts/install-commandcode-reasoning.mjs --check-upstream  # 查官方最新版；未审计版本明确返回 unknown
-node scripts/install-commandcode-reasoning.mjs --check           # 当前安装支持状态
-node scripts/install-commandcode-reasoning.mjs --dry-run         # 只预检，不改应用
-node scripts/install-commandcode-reasoning.mjs                   # 退出 Command Code 后安装
-node scripts/test-commandcode-reasoning.mjs                      # 副本上真实 SDK 三协议八档测试，禁止真实网络
-node --test tests/scripts/commandcodeReasoning*.test.mjs          # 安装/卸载/回滚/原生支持检测
-node scripts/install-commandcode-reasoning.mjs --remove          # 退出后卸载，签名或文件变化时拒绝覆盖
+本地策略通过原生 `agent`、`agent_output` 工具分工、等待及汇总。使用原生 `appendSystemPrompt` 扩展钩子，保留异步系统提示词、结构化缓存段、项目/偏好/技能规则及审批策略。简单任务无需派生子任务；复杂任务是否实际分派取决于模型对工具和指令的执行，运行时不强行制造无用任务。
+
+默认限制按**每次用户提交及该次派生子任务**计算：
+
+| 设置            | 默认值 | 含义                                                  |
+| --------------- | ------ | ----------------------------------------------------- |
+| maxConcurrent   | 2      | 同时运行的子智能体数，主智能体另计，超出排队          |
+| tokenBudget     | 64000  | 主任务、子任务、重试、pause 续传共享的本地 token 预算 |
+| maxOutputTokens | 8192   | 单次请求输出上限，保留原本更小的上限                  |
+| maxChildTurns   | 8      | 单个子智能体轮次上限，保留原本更小的限制              |
+| maxRootTurns    | 12     | 主智能体轮次上限                                      |
+| maxChildren     | 6      | 本次执行允许创建的子智能体总数                        |
+
+可选设置文件 `~/.commandcode/cc-switch-ultra.json`，只写需要覆盖的字段，例如：
+
+```json
+{ "maxConcurrent": 1, "tokenBudget": 32000 }
 ```
 
-官方版本检查只读取公开 GitHub Release 数据，不使用用户模型 API。
-若当前原生代码已支持全部候选，安装器跳过补丁；未知版本、布局或校验不符时拒绝修改，需重新核验。
-桌面版官方更新会替换应用内扩展；更新后运行 `--check` 和 `--dry-run`，原生已经实现时无需重装扩展。
-2026-11-16 核验到的最新版为 [0.1.62](https://github.com/CommandCodeAI/desktop/releases/tag/v0.1.62)，发布说明为 Linux 启动修复，解包确认仍是五档。
+缺省不创建此文件；既有配置不被迁移或修改。每次进入 Ultra 重新读取设置，非法、无限或未知设置拒绝执行。普通 low…max 不受这些限制影响。
+
+请求前按文本 UTF-8 字节数及协议余量保守估算输入，并预留输出上限；预留操作同步执行，防止并行请求同时超额。成功后按估算下限和 usage 结算；缺失、全零或非法 usage、失败请求按完整预留扣减。达到限制在发送前停止，不仅依赖提示词。取消主任务或本次主任务结束时取消尚未完成的后台子任务；禁止子任务递归派生。
+
+本地估算与供应商账单不等价，不承诺精确金额上限。当前 Ultra 只接受可估算的文本上下文和可控制输出的 AI SDK 传输；图片/音频等媒体、禁用输出上限或无法逐请求计量的其他传输在发送前拒绝，可改用普通档位。DOCX/PDF 提取出的纯文本可照常使用。服务端不遵守输出限制或错误回报 usage 无法靠客户端完全约束。
+
+安装仍限定已核验的 0.1.61/0.1.62 版本与五个文件 SHA，先备份源码及签名，失败回滚。原 v1 扩展可直接升级；卸载时逐层恢复上一版扩展和签名，继续卸载直至恢复扩展前的应用状态。卸载发现其他补丁改变了文件/签名时拒绝覆盖。文档解析、偏好学习和授权文件不在修改范围。
+
+```bash
+node scripts/install-commandcode-reasoning.mjs --check-upstream
+node scripts/install-commandcode-reasoning.mjs --check
+node scripts/install-commandcode-reasoning.mjs --dry-run
+node scripts/install-commandcode-reasoning.mjs        # 退出 CMD 后安装或升级
+node scripts/test-commandcode-reasoning.mjs            # 副本上的真实 SDK/原生子智能体离线验收
+node --test tests/scripts/commandcodeUltra.test.mjs tests/scripts/commandcodeReasoning*.test.mjs
+node scripts/install-commandcode-reasoning.mjs --remove
+```
+
+2026-11-16 审计的官方 [0.1.62](https://github.com/CommandCodeAI/desktop/releases/tag/v0.1.62) 原生仍只有五档，没有此 Ultra 编排策略。未来版本检查分别报告已审计的档位及编排状态；未知版本明确返回未知。仅发现八个验证字符串不视为已原生实现预算和编排，需要重新审计后适配，未知版本不强行修改。未创建定时监控。

@@ -5,7 +5,8 @@ export const LEVELS = JSON.parse(
     "utf8",
   ),
 );
-export const PATCH_VERSION = "1.0.0";
+export const PATCH_VERSION = "2.0.1";
+export const WIRE_LEVELS = LEVELS.filter((level) => level !== "ultra");
 const names = [
   "REASONING_EFFORTS",
   "VALID_SKILL_EFFORTS",
@@ -62,21 +63,88 @@ export function patchHarness(source) {
 export function patchSdk(source, kind) {
   const matches = [...source.matchAll(sdkPattern(kind))];
   if (matches.length !== 1) throw Error(`未匹配唯一 SDK anchor: ${kind}`);
-  if (hasAll(values(matches[0][2]))) return source;
+  if (JSON.stringify(values(matches[0][2])) === JSON.stringify(WIRE_LEVELS))
+    return source;
   return source.replace(
     sdkPattern(kind),
-    (_all, before, _list, after) => before + JSON.stringify(LEVELS) + after,
+    (_all, before, _list, after) =>
+      before + JSON.stringify(WIRE_LEVELS) + after,
   );
 }
 export function sourcesSupportAll(sources) {
   return (
     names.every((name) => {
       const matches = [...sources.harness.matchAll(pattern(name))];
-      return matches.length === 1 && hasAll(values(matches[0][2]));
+      return (
+        matches.length === 1 &&
+        WIRE_LEVELS.every((level) => values(matches[0][2]).includes(level))
+      );
     }) &&
     ["openai", "anthropic"].every((kind) => {
       const matches = [...sources[kind].matchAll(sdkPattern(kind))];
-      return matches.length === 1 && hasAll(values(matches[0][2]));
+      return (
+        matches.length === 1 &&
+        WIRE_LEVELS.every((level) => values(matches[0][2]).includes(level))
+      );
     })
+  );
+}
+
+function replaceOnce(source, before, after) {
+  if (source.split(before).length !== 2)
+    throw Error("Ultra runtime anchor mismatch: " + before.slice(0, 70));
+  return source.replace(before, after);
+}
+export function patchFullHarness(source) {
+  if (source.includes("// CCS_ULTRA_RUNTIME_V2.0.1")) return source;
+  let result = patchHarness(source);
+  result = replaceOnce(
+    result,
+    "function run(params) {\n  const controller",
+    `function run(params) { return ccsUltra.run(params, ccsUltraNativeRun); }\nfunction ccsUltraNativeRun(params) {\n  const controller`,
+  );
+  result = replaceOnce(
+    result,
+    "async function runSubAgent(params) {",
+    "async function runSubAgent(params) { return ccsUltra.child(params, ccsUltraNativeSubAgent); }\nasync function ccsUltraNativeSubAgent(params) {",
+  );
+  result = replaceOnce(
+    result,
+    "if (efforts === void 0 || efforts.length === 0) return null;\n      return efforts;",
+    'if (efforts === void 0 || efforts.length === 0) return null;\n      return [...efforts.filter(level=>level!=="ultra"), "ultra"];',
+  );
+  result = replaceOnce(
+    result,
+    "complete: async (callParams) => {\n      const owner = resolve12",
+    "complete: async (callParams) => {\n      callParams = ccsUltra.normalize(callParams,modelRegistry);\n      callParams = {...callParams, signal:ccsUltra.signal(callParams.signal)};\n      const owner = resolve12",
+  );
+  result = replaceOnce(
+    result,
+    "const transport = owner?.transport;\n      if (!owner",
+    'const transport = owner?.transport;\n      if(ccsUltra.active() && transport?.kind!=="aisdk") throw new Error("[Ultra] 当前传输不支持逐请求预算控制；请选择普通档位");\n      if (!owner',
+  );
+  result = replaceOnce(
+    result,
+    "const requestOnce = async (merged2) => {\n    const messages",
+    "const requestOnce = async (merged2) => ccsUltra.request({...callParams, system, tools, providerOptions, messages:[...baseMessages,...merged2],maxOutputTokens,omitMaxOutputTokens:params.omitMaxOutputTokens},async (maxOutputTokens) => {\n    const messages",
+  );
+  result = replaceOnce(
+    result,
+    "onFirstEvent: params.onFirstEvent\n    });\n  };\n  const merged",
+    "onFirstEvent: params.onFirstEvent\n    });\n  });\n  const merged",
+  );
+  result = replaceOnce(
+    result,
+    "  const cost = parseCost(raw.cost, warn, path39);",
+    '  if(reasoningEfforts?.length && !reasoningEfforts.includes("ultra")) reasoningEfforts = [...reasoningEfforts,"ultra"];\n  const cost = parseCost(raw.cost, warn, path39);',
+  );
+  const runtime = fs
+    .readFileSync(new URL("./ultra.mjs", import.meta.url), "utf8")
+    .replaceAll("export ", "");
+  return (
+    "// CCS_ULTRA_RUNTIME_V2.0.1\n" +
+    runtime +
+    "\nconst ccsUltra = createUltraRuntime();\n" +
+    result
   );
 }

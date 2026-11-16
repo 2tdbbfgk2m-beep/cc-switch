@@ -1080,7 +1080,7 @@ export function OpenCodeFormFields({
                         }}
                         hint={t("providerForm.manualReasoningHint", {
                           defaultValue:
-                            "候选不代表模型支持。手动勾选优先于自动补全；清空则不提供档位。ultra 是自定义上游值，不包含 Codex 的自动委派。",
+                            "手动选择优先于自动补全；清空则不提供档位。ultra 是本地编排模式，请求只使用已选的合法档位；默认最多 2 个子智能体并发、共享 64,000 token 预算。",
                         })}
                       />
                     </div>

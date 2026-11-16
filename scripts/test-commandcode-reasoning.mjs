@@ -4,10 +4,12 @@ import os from "node:os";
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import {
-  patchHarness,
+  patchFullHarness,
   patchSdk,
-  LEVELS,
+  WIRE_LEVELS as LEVELS,
 } from "./commandcode-reasoning/patch.mjs";
+import { prepareInstall } from "./commandcode-reasoning/install.mjs";
+import { verifyNativeUltra } from "./commandcode-reasoning/offline-ultra.mjs";
 const appAt = process.argv.indexOf("--app");
 const source = path.resolve(
   appAt < 0 ? "/Applications/Command Code.app" : process.argv[appAt + 1],
@@ -49,9 +51,11 @@ try {
     root,
     "node_modules/@commandcode/harness/dist/index.js",
   );
+  const installPlan = prepareInstall(path.resolve(source, "../../.."));
   fs.writeFileSync(
     harnessFile,
-    patchHarness(fs.readFileSync(harnessFile, "utf8")),
+    installPlan.patched?.harness ??
+      patchFullHarness(fs.readFileSync(harnessFile, "utf8")),
   );
   for (const name of ["openai", "anthropic"])
     for (const ext of ["js", "mjs"]) {
@@ -158,7 +162,10 @@ try {
     }).modules[0];
     const id = `synthetic/${model}`;
     const registry = h.createModelRegistry({ models: module.models });
-    assert.deepEqual(registry.getSupportedEfforts({ model: id }), LEVELS);
+    assert.deepEqual(registry.getSupportedEfforts({ model: id }), [
+      ...LEVELS,
+      "ultra",
+    ]);
     const sdk = module.transport.buildModel({
       model: id,
       auth: { headers: {} },
@@ -192,7 +199,9 @@ try {
     records[api] = sent;
   }
   assert.equal(networkCalls, 0);
-  console.log(JSON.stringify({ records, networkCalls }));
+  const ultra = await verifyNativeUltra(h);
+  assert.equal(networkCalls, 0);
+  console.log(JSON.stringify({ records, ultra, networkCalls }));
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

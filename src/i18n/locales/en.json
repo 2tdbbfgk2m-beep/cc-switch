@@ -1931,7 +1931,7 @@
     },
     "modelMetadataSourceCatalog": "bundled catalog",
     "manualReasoningLabel": "Reasoning tiers",
-    "manualReasoningHint": "Candidates do not imply model support. Manual choices override suggestions; clear all to advertise no tiers. Ultra is a custom upstream value, without Codex task delegation."
+    "manualReasoningHint": "Manual choices override automatic completion; clear to hide efforts. Ultra is local orchestration and uses only selected valid API efforts. Defaults: 2 concurrent subagents and a shared 64,000-token budget."
   },
   "copilot": {
     "automaticFormat": "Selected automatically by routing",

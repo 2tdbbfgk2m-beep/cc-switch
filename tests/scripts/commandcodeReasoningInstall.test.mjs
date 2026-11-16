@@ -13,6 +13,25 @@ import {
 } from "../../scripts/commandcode-reasoning/install.mjs";
 const five = '"low", "medium", "high", "xhigh", "max"';
 const source = `var REASONING_EFFORTS = new Set(["off",${five}]);var VALID_SKILL_EFFORTS = new Set([${five},"inherit"]);var VALID_REASONING_EFFORTS = ["off",${five}];var VALID_EFFORTS = new Set([${five}]);`;
+const runtimeAnchors = `
+  const cost = parseCost(raw.cost, warn, path39);
+function run(params) {
+  const controller = new AbortController();
+}
+async function runSubAgent(params) {}
+if (efforts === void 0 || efforts.length === 0) return null;
+      return efforts;
+complete: async (callParams) => {
+      const owner = resolve12(model);
+const transport = owner?.transport;
+      if (!owner) {}
+const requestOnce = async (merged2) => {
+    const messages = [];
+onFirstEvent: params.onFirstEvent
+    });
+  };
+  const merged = [];
+`;
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cc-efforts-install-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -27,7 +46,7 @@ function fixture(t) {
     write(
       target.path,
       id === "harness"
-        ? source
+        ? source + runtimeAnchors
         : id.startsWith("openai")
           ? 'reasoningEffort: z.enum(["none","minimal","low","medium","high","xhigh"]).optional(),'
           : `effort: z.enum([${five}]).optional(),`,
@@ -127,7 +146,7 @@ test("removal verification failure restores the still-working extension", (t) =>
   );
   assert.equal(inspectApp(x.app).status, "patched");
 });
-test("does not install a patch when a newer app already natively accepts every tier", async (t) => {
+test("does not mistake eight native validation strings for a verified orchestration implementation", async (t) => {
   const x = fixture(t);
   const { patchHarness, patchSdk } = await import(
     "../../scripts/commandcode-reasoning/patch.mjs"
@@ -144,9 +163,7 @@ test("does not install a patch when a newer app already natively accepts every t
       id === "harness" ? patchHarness(source) : patchSdk(source, target.kind),
     );
   }
-  const plan = prepareInstall(x.app);
-  assert.equal(plan.status, "native");
-  assert.equal(plan.unchanged, true);
+  assert.throws(() => prepareInstall(x.app), /未知/);
 });
 test("reports unaudited upstream releases as unknown instead of claiming support", async () => {
   const { checkUpstream } = await import(
@@ -170,3 +187,97 @@ test("reports unaudited upstream releases as unknown instead of claiming support
   assert.equal(future.nativeEfforts, null);
   assert.equal(future.codeAudited, false);
 });
+
+for (const failSigning of [false, true])
+  test(
+    failSigning
+      ? "failed v1 upgrade restores exact manifest sources and signatures"
+      : "upgrades the managed v1 extension and restores it exactly when v2 is removed",
+    async (t) => {
+      const x = fixture(t);
+      const { patchHarness } = await import(
+        "../../scripts/commandcode-reasoning/patch.mjs"
+      );
+      const original = fs.readFileSync(
+        path.join(x.app, TARGETS.harness.path),
+        "utf8",
+      );
+      applyInstall(prepareInstall(x.app, { trusted: x.trusted }), {
+        backupRoot: x.backupRoot,
+        sign: () => {},
+      });
+      const installedFile = path.join(
+        x.app,
+        "Contents/Resources/cc-switch-reasoning/installed.json",
+      );
+      const m = JSON.parse(fs.readFileSync(installedFile));
+      m.patchVersion = "1.0.0";
+      fs.writeFileSync(
+        path.join(x.app, TARGETS.harness.path),
+        patchHarness(original),
+      );
+      for (const [id, target] of Object.entries(TARGETS))
+        m.patchedHashes[id] = hash(
+          fs.readFileSync(path.join(x.app, target.path)),
+        );
+      fs.writeFileSync(installedFile, JSON.stringify(m, null, 2));
+      const before = fs.readFileSync(installedFile, "utf8");
+      const plan = prepareInstall(x.app, { trusted: x.trusted });
+      assert.equal(plan.previousManifest, before);
+      if (failSigning) {
+        const previousSource = fs.readFileSync(
+          path.join(x.app, TARGETS.harness.path),
+        );
+        assert.throws(
+          () =>
+            applyInstall(plan, {
+              backupRoot: x.backupRoot,
+              sign: (app) => {
+                fs.writeFileSync(
+                  path.join(app, "Contents/MacOS/Command Code"),
+                  "partially signed",
+                );
+                throw Error("upgrade sign failure");
+              },
+            }),
+          /upgrade sign failure/,
+        );
+        assert.equal(fs.readFileSync(installedFile, "utf8"), before);
+        assert.deepEqual(
+          fs.readFileSync(path.join(x.app, TARGETS.harness.path)),
+          previousSource,
+        );
+        assert.equal(
+          fs.readFileSync(
+            path.join(x.app, "Contents/MacOS/Command Code"),
+            "utf8",
+          ),
+          "unchanged",
+        );
+        assert.equal(inspectApp(x.app).status, "upgrade-required");
+        return;
+      }
+      applyInstall(plan, { backupRoot: x.backupRoot, sign: () => {} });
+      assert.equal(inspectApp(x.app).status, "patched");
+      // Recover the oldest official source, then unwind each signed state.
+      const intermediate = JSON.parse(fs.readFileSync(installedFile, "utf8"));
+      intermediate.patchVersion = "2.0.0";
+      const intermediateText = JSON.stringify(intermediate, null, 2);
+      fs.writeFileSync(installedFile, intermediateText);
+      applyInstall(prepareInstall(x.app, { trusted: x.trusted }), {
+        backupRoot: x.backupRoot,
+        sign: () => {},
+      });
+      removeInstall(x.app, { verify: () => {} });
+      assert.equal(fs.readFileSync(installedFile, "utf8"), intermediateText);
+      assert.equal(inspectApp(x.app).status, "upgrade-required");
+      removeInstall(x.app, { verify: () => {} });
+      assert.equal(fs.readFileSync(installedFile, "utf8"), before);
+      assert.equal(inspectApp(x.app).status, "upgrade-required");
+      removeInstall(x.app, { verify: () => {} });
+      assert.equal(
+        fs.readFileSync(path.join(x.app, TARGETS.harness.path), "utf8"),
+        original,
+      );
+    },
+  );

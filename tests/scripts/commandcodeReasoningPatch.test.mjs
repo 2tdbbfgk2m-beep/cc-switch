@@ -60,3 +60,8 @@ test("refuses an unknown validation layout rather than patching unrelated model 
     /匹配|layout|anchor/i,
   );
 });
+test("SDK schemas accept wire efforts only: ultra is never a legal API value", () => {
+  const sdk = patchSdk(openai, "openai");
+  assert.equal(sdk.includes('"ultra"'), false);
+  assert.ok(sdk.includes('"max"'));
+});

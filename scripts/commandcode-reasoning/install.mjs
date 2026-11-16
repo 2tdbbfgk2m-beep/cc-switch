@@ -4,12 +4,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { signApp, ensureStopped } from "../commandcode-documents/install.mjs";
-import {
-  patchHarness,
-  patchSdk,
-  sourcesSupportAll,
-  PATCH_VERSION,
-} from "./patch.mjs";
+import { patchFullHarness, patchSdk, PATCH_VERSION } from "./patch.mjs";
 export { ensureStopped };
 export const hash = (data) =>
   crypto.createHash("sha256").update(data).digest("hex");
@@ -71,7 +66,7 @@ export function inspectApp(app) {
     const installed = json(installedFile);
     ensure(
       installed.owner === owner &&
-        installed.patchVersion === PATCH_VERSION &&
+        [PATCH_VERSION, "1.0.0", "2.0.0"].includes(installed.patchVersion) &&
         installed.appVersion === version,
       "已有扩展版本或归属不匹配，未修改。",
     );
@@ -80,19 +75,17 @@ export function inspectApp(app) {
         hash(sources[id]) === installed.patchedHashes[id],
         "已有扩展文件发生变化，未修改。",
       );
-    return { status: "patched", appVersion: version };
+    return {
+      status:
+        installed.patchVersion === PATCH_VERSION
+          ? "patched"
+          : "upgrade-required",
+      appVersion: version,
+      patchVersion: installed.patchVersion,
+    };
   }
-  const supported = ["js", "mjs"].every((ext) =>
-    sourcesSupportAll({
-      harness: sources.harness,
-      openai: sources[`openai-${ext}`],
-      anthropic: sources[`anthropic-${ext}`],
-    }),
-  );
-  return {
-    status: supported ? "native" : "needs-extension",
-    appVersion: version,
-  };
+  // Native effort strings alone do not prove orchestration or budget enforcement.
+  return { status: "needs-extension", appVersion: version };
 }
 export function prepareInstall(app, { trusted = manifests.versions } = {}) {
   const state = inspectApp(app);
@@ -104,25 +97,53 @@ export function prepareInstall(app, { trusted = manifests.versions } = {}) {
       status: state.status,
     };
   const { version, sources } = readApp(app);
+  const previousManifest =
+    state.status === "upgrade-required"
+      ? fs.readFileSync(path.join(addon(app), "installed.json"), "utf8")
+      : undefined;
+  let originalManifest = previousManifest
+    ? JSON.parse(previousManifest)
+    : undefined;
+  const visited = new Set();
+  while (originalManifest?.previousManifest) {
+    ensure(
+      !visited.has(originalManifest.backupDir),
+      "扩展备份链循环，未修改。",
+    );
+    visited.add(originalManifest.backupDir);
+    originalManifest = JSON.parse(originalManifest.previousManifest);
+  }
+  const baseSources = originalManifest
+    ? Object.fromEntries(
+        Object.keys(TARGETS).map((id) => [
+          id,
+          fs.readFileSync(
+            path.join(originalManifest.backupDir, `${id}.original`),
+            "utf8",
+          ),
+        ]),
+      )
+    : sources;
   const expected = trusted[version];
   ensure(expected, "未知 Command Code 版本；请先核对官方更新，未修改应用。");
   for (const id of Object.keys(TARGETS))
     ensure(
-      hash(sources[id]) === expected[id],
+      hash(baseSources[id]) === expected[id],
       `应用文件校验不匹配：${id}，未修改。`,
     );
   const patched = Object.fromEntries(
     Object.entries(TARGETS).map(([id, target]) => [
       id,
       target.kind === "harness"
-        ? patchHarness(sources[id])
-        : patchSdk(sources[id], target.kind),
+        ? patchFullHarness(baseSources[id])
+        : patchSdk(baseSources[id], target.kind),
     ]),
   );
   return {
     appDir: app,
     appVersion: version,
     sources,
+    previousManifest,
     patched,
     originalHashes: Object.fromEntries(
       Object.keys(sources).map((id) => [id, hash(sources[id])]),
@@ -190,7 +211,13 @@ export function applyInstall(
     readApp(app).version === plan.appVersion,
     "应用版本在预检后变化，未修改。",
   );
-  ensure(!fs.existsSync(addon(app)), "扩展目录已存在，未修改。");
+  ensure(
+    plan.previousManifest
+      ? fs.readFileSync(path.join(addon(app), "installed.json"), "utf8") ===
+          plan.previousManifest
+      : !fs.existsSync(addon(app)),
+    "扩展目录在预检后变化，未修改。",
+  );
   for (const [id, target] of Object.entries(TARGETS))
     ensure(
       hash(fs.readFileSync(path.join(app, target.path))) ===
@@ -204,13 +231,18 @@ export function applyInstall(
   backup(app, backupDir);
   let owned = false;
   try {
-    fs.mkdirSync(addon(app));
-    owned = true;
+    if (!plan.previousManifest) {
+      fs.mkdirSync(addon(app));
+      owned = true;
+    }
     fs.writeFileSync(
       path.join(addon(app), "installed.json"),
       JSON.stringify(
         {
           owner,
+          ...(plan.previousManifest
+            ? { previousManifest: plan.previousManifest }
+            : {}),
           patchVersion: PATCH_VERSION,
           appVersion: plan.appVersion,
           backupDir,
@@ -243,6 +275,11 @@ export function applyInstall(
   } catch (error) {
     restore(app, backupDir);
     if (owned) fs.rmSync(addon(app), { recursive: true });
+    else if (plan.previousManifest)
+      fs.writeFileSync(
+        path.join(addon(app), "installed.json"),
+        plan.previousManifest,
+      );
     throw error;
   }
 }
@@ -255,7 +292,10 @@ export function removeInstall(
       }),
   } = {},
 ) {
-  ensure(inspectApp(app).status === "patched", "未找到受管理的扩展，未修改。");
+  ensure(
+    ["patched", "upgrade-required"].includes(inspectApp(app).status),
+    "未找到受管理的扩展，未修改。",
+  );
   const installed = json(path.join(addon(app), "installed.json"));
   const expected = json(
     path.join(installed.backupDir, "installed-signatures.json"),
@@ -274,14 +314,26 @@ export function removeInstall(
   let moved = false;
   try {
     restore(app, installed.backupDir);
-    fs.renameSync(addon(app), path.join(stash, "addon"));
-    moved = true;
+    if (installed.previousManifest)
+      fs.writeFileSync(
+        path.join(addon(app), "installed.json"),
+        installed.previousManifest,
+      );
+    else {
+      fs.renameSync(addon(app), path.join(stash, "addon"));
+      moved = true;
+    }
     verify(app);
   } catch (error) {
     for (const [relative, bytes] of current)
       if (!fs.readFileSync(path.join(app, relative)).equals(bytes))
         fs.writeFileSync(path.join(app, relative), bytes);
     if (moved) fs.renameSync(path.join(stash, "addon"), addon(app));
+    else if (installed.previousManifest)
+      fs.writeFileSync(
+        path.join(addon(app), "installed.json"),
+        JSON.stringify(installed, null, 2),
+      );
     throw error;
   } finally {
     fs.rmSync(stash, { recursive: true, force: true });
@@ -308,5 +360,9 @@ export async function checkUpstream(fetchImpl = fetch) {
         ? manifests.upstreamAudit.nativeEfforts
         : null,
     codeAudited: version === manifests.upstreamAudit.version,
+    ultraOrchestration:
+      version === manifests.upstreamAudit.version
+        ? manifests.upstreamAudit.ultraOrchestration
+        : null,
   };
 }
