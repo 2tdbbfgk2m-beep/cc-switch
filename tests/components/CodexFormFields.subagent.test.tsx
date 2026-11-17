@@ -1,6 +1,7 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps, PropsWithChildren } from "react";
+import { useState, type ComponentProps, type PropsWithChildren } from "react";
 import { useForm } from "react-hook-form";
 import { describe, expect, it, vi } from "vitest";
 import { CodexFormFields } from "@/components/providers/forms/CodexFormFields";
@@ -14,7 +15,12 @@ type CodexFormFieldsProps = ComponentProps<typeof CodexFormFields>;
 
 const FormShell = ({ children }: PropsWithChildren) => {
   const form = useForm();
-  return <Form {...form}>{children}</Form>;
+  const [client] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={client}>
+      <Form {...form}>{children}</Form>
+    </QueryClientProvider>
+  );
 };
 
 const NOT_IN_CATALOG = /该模型不在模型列表中：Codex 拿不到它的上下文窗口/;
