@@ -68,8 +68,8 @@ Command Code 只保留原生 BYOK 直连，不再提供 CC Switch 本地路由�
 历史槽位数据库表保留，便于回退，已不参与运行。
 
 本机桌面登录适配的 LaunchAgent 每分钟调用
-`~/.commandcode/desktop/sync-auth.mjs`。脚本的受版本管理副本位于
-`scripts/commandcode-sync-auth.mjs`，可在已有桌面适配环境安装：
+`~/.commandcode/desktop/sync-auth.mjs`。脚本已移到独立仓库
+commandcode-desktop-extensions，在该仓库中安装：
 
 ```bash
 install -m 600 scripts/commandcode-sync-auth.mjs ~/.commandcode/desktop/sync-auth.mjs
@@ -85,9 +85,10 @@ node ~/.commandcode/desktop/sync-auth.mjs
 回归检查：
 
 ```bash
-node --test tests/scripts/commandcodeSyncAuth.test.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --lib commandcode_config::tests -- --test-threads=1
 ```
+
+脚本本身的回归测试在 commandcode-desktop-extensions 仓库运行。
 
 ## Command Code 桌面版 DS4.1F 偏好学习
 
@@ -96,7 +97,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib commandcode_config::tests 
 Mod 只在桌面版的 `localOnly` 环境运行。CLI 程序未改；原生读取同一全局 Taste 的
 Command Code 客户端也可以使用共享规则。
 
-在已有 OpenCode Go 供应商的环境安装：
+在已有 OpenCode Go 供应商的环境，从 commandcode-desktop-extensions 仓库安装：
 
 ```bash
 node scripts/install-commandcode-taste.mjs
@@ -105,7 +106,7 @@ node scripts/install-commandcode-taste.mjs
 安装器只添加 `~/.commandcode/mods/cc-switch-taste.mjs`，不会改写模型、登录、MCP、
 供应商、学习开关或会话配置。更新自己的旧 Mod 时留存独占备份；同名外来文件拒绝覆盖。
 桌面版重新加载 Mods 或新建会话后生效，无需重启正在进行的聊天。
-每个个人 Release 同时附带这两个脚本；安装器和 Mod 文件须放在同一目录。
+安装器和 Mod 文件须放在同一目录，由 commandcode-desktop-extensions 仓库发布，不再随本仓库的 Release 附带。
 CC Switch 的应用更新与此可选 Mod 的安装是两个独立步骤。
 
 流程：新一轮对话结束 → 复制本轮新增的用户/助手文本 → 后台调用 Go 的
@@ -152,11 +153,7 @@ Taste 机制读取偏好。现有 `taste` 工具在此环境下由 Mod 接管，
 停用可使用原有 Taste 学习开关；卸载只删除这个 Mod 文件并重新加载 Mods。
 已有 Taste 文件保留，账号适配和其他 Mod 不受影响。卸载 Mod 不会删除已经学到的全局规则。
 
-回归检查：
-
-```bash
-node --test tests/scripts/commandcode*.test.mjs
-```
+回归检查在 commandcode-desktop-extensions 仓库运行。
 
 本机另外使用桌面版 0.1.61 实际附带的 harness、原生 Mod 发现和隔离虚构会话，
 验证真实 DS4.1F 的全局/项目分流、跨项目读取和隔离、项目例外、更新旧规则、下一轮读取、
@@ -169,9 +166,11 @@ node --test tests/scripts/commandcode*.test.mjs
 在桌面版附件读取层本地解析，再交给原生附件与消息流程；解析本身不上传文档，发送消息时内容随主模型请求发送。
 不改配置、登录、供应商、Taste、MCP 或历史会话。普通文本、图片和目录沿用原生处理。
 
+构建和安装在 commandcode-desktop-extensions 仓库进行：
+
 ```bash
 pnpm install --frozen-lockfile
-pnpm build:commandcode-documents
+pnpm build:documents
 node scripts/install-commandcode-documents.mjs --dry-run
 # 先退出 Command Code，再安装：
 node scripts/install-commandcode-documents.mjs
@@ -195,13 +194,10 @@ Command Code 上游更新可能覆盖补丁；新版本需要重新检查适配�
 node scripts/install-commandcode-documents.mjs --remove
 ```
 
-卸载验证备份和当前补丁归属，只恢复本补丁替换的应用文件，保留所有用户配置和会话。
-回归测试包含真实 DOCX 表格、PDF 文本和 JPEG 扫描页渲染、草稿切换、图片容量、原子添加，以及安装失败回滚：
+命令在 commandcode-desktop-extensions 仓库中运行。
 
-```bash
-node --test tests/scripts/commandcode*.test.mjs
-pnpm vitest run tests/commandcodeDocumentsHook.test.js
-```
+卸载验证备份和当前补丁归属，只恢复本补丁替换的应用文件，保留所有用户配置和会话。
+回归测试包含真实 DOCX 表格、PDF 文本和 JPEG 扫描页渲染、草稿切换、图片容量、原子添加，以及安装失败回滚，在 commandcode-desktop-extensions 仓库运行。
 
 ### GPT 推理档位默认值（2026-11-16）
 
@@ -270,6 +266,8 @@ Command Code 新增模型现在为已核实的 `gpt-6.1-sol`、`gpt-6.1-terra`�
 
 推理安装仍限定已核验的 0.1.61/0.1.62 版本与五个文件 SHA。文档与推理安装共用事务：先保存当前组件文件及应用签名，失败恢复本次快照。卸载只恢复该组件拥有的文件，再对当前应用重新签名，因此不覆盖另一组件的改动。目标源码或备份不匹配时拒绝覆盖。旧 v1/v2 安装和回滚链继续可读；新清单改为引用不可变备份中的上一版清单，避免递归嵌入历史。Ultra 运行时作为独立 ultra.mjs 安装并校验哈希。偏好学习、授权和会话文件不在修改范围。
 
+安装、验收和卸载命令在 commandcode-desktop-extensions 仓库中运行：
+
 ```bash
 node scripts/install-commandcode-reasoning.mjs --check-upstream
 node scripts/install-commandcode-reasoning.mjs --check
@@ -286,8 +284,10 @@ node scripts/install-commandcode-reasoning.mjs --remove
 
 需要 Node.js 22+ 和 macOS。统一包目前适配 CMD 0.1.61（文档解析限定该版本）；单独的推理扩展兼容 0.1.61/0.1.62。未知版本拒绝修改。
 
+构建、安装和卸载在 commandcode-desktop-extensions 仓库进行：
+
 ```bash
-pnpm build:commandcode-extensions
+pnpm build:extensions
 # 解压 release/commandcode-extensions-1.0.0.tar.gz，进入解压目录：
 node scripts/install-commandcode-extensions.mjs --check
 node scripts/install-commandcode-extensions.mjs --dry-run
@@ -300,6 +300,6 @@ node scripts/install-commandcode-extensions.mjs --remove --component reasoning
 
 统一包自带解析依赖、推理运行时、配置数据、安装器和文件哈希清单，无需整份源码或 npm install。发布同时附带 SHA-256 文件。默认安装文档和推理组件，在同一事务中只签名一次；Taste Mod 与 auth-sync 仅报告状态和哈希，不自动替换已有部署。包内仍保留原有独立安装命令及 Taste 安装脚本，便于显式操作。已有备份历史不会清理。
 
-个人发布工作流先验证本地单元测试，再下载固定 SHA 的官方 0.1.61/0.1.62 应用进行 SDK/原生子智能体离线验收；0.1.61 还验证真实应用副本上的联合安装、两种卸载顺序、失败回滚，以及解压后脱离仓库的安装包。测试禁用模型网络请求；下载的是公开应用发行文件。通过后构建并发布 CCS 和桌面扩展附件。工作流配置完成不等于云端运行成功，需单独检查 Actions。
+个人发布工作流先验证本地单元测试，再下载固定 SHA 的官方 0.1.61/0.1.62 应用进行 SDK/原生子智能体离线验收；0.1.61 还验证真实应用副本上的联合安装、两种卸载顺序、失败回滚，以及解压后脱离仓库的安装包。测试禁用模型网络请求；下载的是公开应用发行文件。通过后构建并发布 CCS。桌面扩展附件由 commandcode-desktop-extensions 仓库单独发布。工作流配置完成不等于云端运行成功，需单独检查 Actions。
 
 2026-11-16 的云端原生验收另外校正了文档组件的 renderer 白名单：同时精确接受已核验官方 0.1.61 与既有本地 BYOK 排序版本，两个完整 SHA 分别记录在 desktop-0.1.61.json。两者仅模型列表排序不同，附件替换边界一致；未知哈希继续拒绝。卸载必须恢复本次安装记录的原始 SHA，不能混用另一种受支持版本的备份。
