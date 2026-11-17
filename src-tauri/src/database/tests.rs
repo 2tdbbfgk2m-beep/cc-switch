@@ -1246,6 +1246,32 @@ fn model_pricing_refresh_finishes_old_repair_chains_and_preserves_custom_prices(
 }
 
 #[test]
+fn model_pricing_seed_includes_qwen4_max() {
+    let db = Database::memory().expect("create memory db");
+    let conn = db.conn.lock().expect("lock conn");
+
+    let price: (String, String, String, String) = conn
+        .query_row(
+            "SELECT input_cost_per_million, output_cost_per_million,
+                    cache_read_cost_per_million, cache_creation_cost_per_million
+             FROM model_pricing WHERE model_id = 'qwen4-max'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("query Qwen4 Max price");
+
+    assert_eq!(
+        price,
+        (
+            "1.50".to_string(),
+            "4.50".to_string(),
+            "0.075".to_string(),
+            "1.875".to_string(),
+        )
+    );
+}
+
+#[test]
 fn model_pricing_seed_includes_gpt_6_astra() {
     let db = Database::memory().expect("create memory db");
     let conn = db.conn.lock().expect("lock conn");
@@ -1587,12 +1613,14 @@ fn migration_v23_to_v24_adds_dsh_flags_without_changing_omp_or_skill_state() {
 }
 
 #[test]
-fn migration_v24_upgrades_to_current_schema_keeping_earlier_flags() {
+fn migration_from_v24_adds_copilot_and_workbuddy_flags_without_changing_dsh_state() {
     let conn = Connection::open_in_memory().expect("open memory db");
     Database::create_tables_on_conn(&conn).expect("create tables");
     conn.execute_batch(
         "ALTER TABLE mcp_servers DROP COLUMN enabled_copilot;
          ALTER TABLE skills DROP COLUMN enabled_copilot;
+         ALTER TABLE mcp_servers DROP COLUMN enabled_workbuddy;
+         ALTER TABLE skills DROP COLUMN enabled_workbuddy;
          INSERT INTO mcp_servers (id, name, server_config, enabled_dsh)
          VALUES ('shared', 'Shared MCP', '{}', 1);
          INSERT INTO skills (id, name, directory, enabled_dsh)
@@ -1602,6 +1630,7 @@ fn migration_v24_upgrades_to_current_schema_keeping_earlier_flags() {
     Database::set_user_version(&conn, 24).expect("set user_version=24");
 
     Database::apply_schema_migrations_on_conn(&conn).expect("upgrade v24 database");
+    // v24 → v25（Copilot）→ v26（WorkBuddy）→ v27（Command Code）→ v28
     assert_eq!(Database::get_user_version(&conn).unwrap(), SCHEMA_VERSION);
 
     // 后加的应用列都落位且默认关闭。
@@ -1613,14 +1642,14 @@ fn migration_v24_upgrades_to_current_schema_keeping_earlier_flags() {
     assert!(!commandcode);
 
     for table in ["mcp_servers", "skills"] {
-        let flags: (bool, bool) = conn
+        let flags: (bool, bool, bool) = conn
             .query_row(
-                &format!("SELECT enabled_dsh, enabled_copilot FROM {table}"),
+                &format!("SELECT enabled_dsh, enabled_copilot, enabled_workbuddy FROM {table}"),
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("read migrated flags");
-        assert_eq!(flags, (true, false), "{table}");
+        assert_eq!(flags, (true, false, false), "{table}");
     }
 
     conn.execute("UPDATE skills SET enabled_copilot = 1", [])
@@ -1633,18 +1662,156 @@ fn migration_v24_upgrades_to_current_schema_keeping_earlier_flags() {
 }
 
 #[test]
-fn fresh_install_has_both_dsh_and_copilot_flags_at_current_version() {
+fn fresh_install_has_dsh_copilot_and_workbuddy_flags_at_current_version() {
     // 与 Database::init 的全新安装路径一致：先建表，再从 user_version=0 跑迁移。
     let conn = Connection::open_in_memory().expect("open memory db");
     Database::create_tables_on_conn(&conn).expect("create tables");
     Database::apply_schema_migrations_on_conn(&conn).expect("apply migrations");
     assert_eq!(Database::get_user_version(&conn).unwrap(), SCHEMA_VERSION);
     for table in ["mcp_servers", "skills"] {
-        for column in ["enabled_dsh", "enabled_copilot"] {
+        for column in ["enabled_dsh", "enabled_copilot", "enabled_workbuddy"] {
             assert!(
                 Database::has_column(&conn, table, column).expect("inspect column"),
                 "{table}.{column} missing on fresh install"
             );
         }
     }
+}
+
+#[test]
+fn recovers_after_a_panic_poisons_the_connection_lock() {
+    let db = std::sync::Arc::new(Database::memory().expect("memory db"));
+    db.set_setting("kept", "1").expect("seed");
+
+    let poisoner = std::sync::Arc::clone(&db);
+    let joined = std::thread::spawn(move || {
+        let conn = poisoner.conn.lock().expect("lock conn");
+        conn.execute_batch("BEGIN; INSERT INTO settings (key, value) VALUES ('lost', '1');")
+            .expect("open transaction");
+        panic!("task panics while holding the lock");
+    })
+    .join();
+    assert!(joined.is_err());
+    assert!(db.conn.is_poisoned());
+
+    // 中毒后仍能读写，半截事务被回滚
+    assert_eq!(
+        db.get_setting("kept")
+            .expect("read after poison")
+            .as_deref(),
+        Some("1")
+    );
+    assert_eq!(db.get_setting("lost").expect("read after poison"), None);
+    db.set_setting("after", "1").expect("write after poison");
+    assert!(!db.conn.is_poisoned());
+}
+
+#[test]
+fn keeps_the_lock_poisoned_when_rollback_fails() {
+    use rusqlite::hooks::{AuthAction, AuthContext, Authorization, TransactionOperation};
+    let db = std::sync::Arc::new(Database::memory().expect("memory db"));
+
+    let poisoner = std::sync::Arc::clone(&db);
+    let joined = std::thread::spawn(move || {
+        let conn = poisoner.conn.lock().expect("lock conn");
+        conn.execute_batch("BEGIN").expect("open transaction");
+        conn.authorizer(Some(|ctx: AuthContext<'_>| match ctx.action {
+            AuthAction::Transaction {
+                operation: TransactionOperation::Rollback,
+            } => Authorization::Deny,
+            _ => Authorization::Allow,
+        }));
+        panic!("task panics while holding the lock");
+    })
+    .join();
+    assert!(joined.is_err());
+
+    assert!(db.get_setting("kept").is_err());
+    assert!(db.conn.is_poisoned());
+}
+
+#[tokio::test]
+async fn proxy_dao_calls_survive_a_poisoned_lock() {
+    let db = std::sync::Arc::new(Database::memory().expect("memory db"));
+    db.set_proxy_flags_sync("claude", true, true)
+        .expect("set flags");
+    db.update_proxy_config(crate::proxy::types::ProxyConfig {
+        listen_port: 25721,
+        ..Default::default()
+    })
+    .await
+    .expect("set port");
+
+    // 每次调用前都重新毒化，确保每个调用点自己完成恢复
+    let poison = || {
+        let poisoner = std::sync::Arc::clone(&db);
+        let joined = std::thread::spawn(move || {
+            let _conn = poisoner.conn.lock().expect("lock conn");
+            panic!("task panics while holding the lock");
+        })
+        .join();
+        assert!(joined.is_err());
+        assert!(db.conn.is_poisoned());
+    };
+
+    poison();
+    db.set_proxy_flags_sync("claude", true, false)
+        .expect("set flags after poison");
+    poison();
+    assert_eq!(
+        db.get_proxy_flags_sync("claude"),
+        (true, false),
+        "get_proxy_flags_sync after poison"
+    );
+    poison();
+    assert!(
+        db.is_live_takeover_active_sync(),
+        "is_live_takeover_active_sync after poison"
+    );
+    poison();
+    assert_eq!(
+        db.get_proxy_client_endpoint_sync().1,
+        25721,
+        "get_proxy_client_endpoint_sync after poison"
+    );
+    poison();
+    db.set_pricing_model_source("claude", "request")
+        .await
+        .expect("set pricing source after poison");
+    assert_eq!(
+        db.get_pricing_model_source("claude")
+            .await
+            .expect("read pricing source"),
+        "request"
+    );
+}
+
+#[test]
+fn migration_from_personal_v27_adds_workbuddy_flags() {
+    // 个人分支旧库：版本号 27，有 enabled_commandcode，没有上游 v26 的 enabled_workbuddy。
+    let conn = Connection::open_in_memory().expect("open memory db");
+    Database::create_tables_on_conn(&conn).expect("create tables");
+    conn.execute_batch(
+        "ALTER TABLE mcp_servers DROP COLUMN enabled_workbuddy;
+         ALTER TABLE skills DROP COLUMN enabled_workbuddy;
+         INSERT INTO mcp_servers (id, name, server_config, enabled_commandcode)
+         VALUES ('shared', 'Shared MCP', '{}', 1);",
+    )
+    .expect("seed personal v27 database");
+    Database::set_user_version(&conn, 27).expect("set user_version=27");
+
+    Database::apply_schema_migrations_on_conn(&conn).expect("upgrade v27 database");
+    assert_eq!(Database::get_user_version(&conn).unwrap(), SCHEMA_VERSION);
+    let flags: (bool, bool) = conn
+        .query_row(
+            "SELECT enabled_commandcode, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read flags");
+    assert_eq!(flags, (true, false));
+    conn.query_row("SELECT enabled_workbuddy FROM skills", [], |row| {
+        row.get::<_, bool>(0)
+    })
+    .ok();
 }

@@ -159,16 +159,6 @@ pub struct OpenClawAgentsDefaults {
     pub extra: HashMap<String, Value>,
 }
 
-/// OpenClaw agents 顶层配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct OpenClawAgents {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub defaults: Option<OpenClawAgentsDefaults>,
-    #[serde(flatten)]
-    pub extra: HashMap<String, Value>,
-}
-
 /// OpenClaw env 配置（openclaw.json 的 env 节点）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenClawEnvConfig {
@@ -322,7 +312,7 @@ impl OpenClawConfigDocument {
     }
 
     fn save(self) -> Result<OpenClawWriteOutcome, AppError> {
-        let _guard = openclaw_write_lock().lock()?;
+        let _guard = crate::sync_utils::lock_file_operation(openclaw_write_lock());
 
         let current_source = if self.path.exists() {
             Some(fs::read_to_string(&self.path).map_err(|e| AppError::io(&self.path, e))?)
@@ -914,14 +904,13 @@ pub fn set_tools_config(tools: &OpenClawToolsConfig) -> Result<OpenClawWriteOutc
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync_utils::MutexExt;
     use serial_test::serial;
     use std::sync::{Mutex, OnceLock};
 
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+        LOCK.get_or_init(|| Mutex::new(())).lock_recover()
     }
 
     fn with_test_paths<T>(source: &str, test: impl FnOnce(&Path) -> T) -> T {

@@ -47,6 +47,7 @@ import type { CopilotModel } from "@/lib/api/copilot";
 import {
   fetchCodexOauthModels,
   fetchXaiOauthModels,
+  claudeModelFetchApiFormat,
   fetchModelsForConfig,
   modelFetchRequestHeaders,
   showFetchModelsError,
@@ -357,6 +358,7 @@ export function ClaudeFormFields({
       modelsUrl,
       customUserAgent,
       {
+        apiFormat: claudeModelFetchApiFormat(apiFormat),
         requestHeaders: modelFetchRequestHeaders(localProxyHeadersOverride),
       },
     )
@@ -374,6 +376,7 @@ export function ClaudeFormFields({
     apiKey,
     isFullUrl,
     customUserAgent,
+    apiFormat,
     localProxyHeadersOverride,
     showModelFetchResult,
     t,

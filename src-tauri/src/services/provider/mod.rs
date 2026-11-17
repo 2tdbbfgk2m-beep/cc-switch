@@ -29,7 +29,6 @@ mod pi;
 mod usage;
 
 use indexmap::IndexMap;
-use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -108,6 +107,34 @@ pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, App
     Ok(true)
 }
 
+/// 「非接管切换时保留官方登录」开关变更后，立即按新开关重写当前直连的第三方 Codex 供应商：
+/// 关掉时把 `auth.json` 里的官方登录暂存走、`requires_openai_auth` 改写成 false，和重新切换
+/// 一次一样，不必先切回官方卡再切回来（#9367）。开关只管直连切到第三方：代理模式、当前是
+/// 官方卡或没有当前供应商时为 no-op。
+pub fn reapply_current_codex_third_party_live(state: &AppState) -> Result<bool, AppError> {
+    let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &AppType::Codex)?;
+    if crate::mode::current::is_proxy(&AppType::Codex) {
+        return Ok(false);
+    }
+    let Some(current_id) = crate::mode::current::provider_for(
+        &state.db,
+        &AppType::Codex,
+        crate::mode::current::Purpose::Direct,
+    )?
+    else {
+        return Ok(false);
+    };
+    let providers = state.db.get_all_providers(AppType::Codex.as_str())?;
+    let Some(provider) = providers.get(&current_id) else {
+        return Ok(false);
+    };
+    if codex_direct::is_official(provider) {
+        return Ok(false);
+    }
+    live::write_live_for_state(state, &AppType::Codex, provider)?;
+    Ok(true)
+}
+
 /// 新版不再读通用配置片段，但旧设备经云同步拿到新建的行时仍按这个标记合并片段；不写的
 /// 话，旧版切到它会把 hooks、MCP 等共享设置整份抹掉。
 fn keep_common_config_for_old_versions(provider: &mut Provider) {
@@ -161,7 +188,12 @@ fn lock_native_provider_operations(
 ) -> Option<tokio::sync::OwnedMutexGuard<()>> {
     matches!(
         app_type,
-        AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Copilot | AppType::Commandcode
+        AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Copilot
+            | AppType::WorkBuddy
+            | AppType::Commandcode
     )
     .then(|| {
         futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()))
@@ -206,6 +238,7 @@ mod tests {
     use crate::provider::{ClaudeDesktopMode, ClaudeDesktopModelRoute};
     use crate::proxy::types::ProxyConfig;
     use crate::store::AppState;
+    use crate::sync_utils::MutexExt;
     use serde_json::json;
     use serial_test::serial;
     use std::env;
@@ -322,9 +355,7 @@ mod tests {
 
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+        LOCK.get_or_init(|| Mutex::new(())).lock_recover()
     }
 
     fn with_test_home<T>(test: impl FnOnce(&AppState, &Path) -> T) -> T {
@@ -1306,6 +1337,10 @@ mod tests {
             .remove("CLAUDE_CODE_DISABLE_ARTIFACT");
         ProviderService::update(&state, AppType::Claude, None, updated).expect("update");
 
+        // 开着的会话先读到空串（撤掉旧值），几秒后再删
+        let live: Value = read_json_file(&get_claude_settings_path()).expect("read live");
+        assert_eq!(live["env"]["CLAUDE_CODE_DISABLE_ARTIFACT"], json!(""));
+        claude_direct::settle_tombstones();
         let live: Value = read_json_file(&get_claude_settings_path()).expect("read live");
         assert_eq!(
             live,
@@ -1936,6 +1971,7 @@ GEMINI_TIMEOUT_MS=30000
             value,
             json!({
                 "env": {
+                    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
                     "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1",
                     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
                     "DISABLE_TELEMETRY": "1"
@@ -1998,25 +2034,6 @@ GEMINI_TIMEOUT_MS=30000
             Some("true")
         );
         assert_eq!(value.get("theme").and_then(|v| v.as_str()), Some("dark"));
-    }
-
-    #[test]
-    fn extract_credentials_returns_expected_values() {
-        let provider = Provider::with_id(
-            "claude".into(),
-            "Claude".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": "token",
-                    "ANTHROPIC_BASE_URL": "https://claude.example"
-                }
-            }),
-            None,
-        );
-        let (api_key, base_url) =
-            ProviderService::extract_credentials(&provider, &AppType::Claude).unwrap();
-        assert_eq!(api_key, "token");
-        assert_eq!(base_url, "https://claude.example");
     }
 
     #[test]
@@ -5598,7 +5615,7 @@ impl ProviderService {
                 provider.settings_config.clone(),
                 Self::provider_live_config_managed(provider),
             );
-            if provider.category.as_deref() != Some("official") {
+            if !provider.has_official_category() {
                 if let Some(converted) =
                     crate::copilot_config::convert_legacy_settings(&provider.settings_config)
                 {
@@ -5646,7 +5663,7 @@ impl ProviderService {
             );
         }
         // Additive mode apps have no "current" provider concept
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             return Ok(String::new());
         }
         // 代理模式下界面上的「当前」是代理路由到的那家。
@@ -5761,7 +5778,7 @@ impl ProviderService {
         app_type: AppType,
         provider: Provider,
     ) -> Result<bool, AppError> {
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             return Self::add(state, app_type, provider, false);
         }
         let mut provider = provider;
@@ -5800,7 +5817,7 @@ impl ProviderService {
         // Copilot 官方卡只存行、不写文件：前端新增默认带 addToLive=true，不当错误。
         let add_to_live = add_to_live
             && !(app_type == AppType::Copilot && copilot_direct::is_official(&provider));
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             Self::set_provider_live_config_managed(&mut provider, add_to_live);
         }
 
@@ -5843,8 +5860,30 @@ impl ProviderService {
         // 还没有当前供应商时这一家会被写进 live：和进入代理、切换互斥（同 `update`）。
         let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app_type)?;
 
+        // WorkBuddy 官方登录卡只存绑定，不进 models.json
+        if app_type == AppType::WorkBuddy
+            && crate::workbuddy_config::is_official_provider(&provider)
+        {
+            Self::set_provider_live_config_managed(&mut provider, false);
+            state.db.save_provider(app_type.as_str(), &provider)?;
+            return Ok(true);
+        }
+
+        // WorkBuddy: models.json may refuse the entries (model ID owned by someone else);
+        // write it first so a refusal leaves no orphan row behind.
+        if app_type == AppType::WorkBuddy && add_to_live {
+            write_live_for_state(state, &app_type, &provider)?;
+            if let Err(error) = state.db.save_provider(app_type.as_str(), &provider) {
+                if let Err(rollback) = crate::workbuddy_config::remove_provider(&provider.id) {
+                    log::warn!("Failed to roll back WorkBuddy models.json: {rollback}");
+                }
+                return Err(error);
+            }
+            return Ok(true);
+        }
+
         // 累加式写 live 失败（如配置文件解析不了）时要撤回这一行，先记下原来的
-        let existing_row = if app_type.is_additive_mode() {
+        let existing_row = if app_type.spec().additive {
             state
                 .db
                 .get_provider_by_id(&provider.id, app_type.as_str())?
@@ -5856,7 +5895,7 @@ impl ProviderService {
         state.db.save_provider(app_type.as_str(), &provider)?;
 
         // Additive mode apps (OpenCode, OpenClaw, Hermes): optionally write to live config.
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             // OMO / OMO Slim providers use exclusive mode and write to dedicated config file.
             if matches!(app_type, AppType::OpenCode)
                 && matches!(provider.category.as_deref(), Some("omo") | Some("omo-slim"))
@@ -6422,7 +6461,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
-        if matches!(app_type, AppType::Codex) && provider.category.as_deref() == Some("official") {
+        if matches!(app_type, AppType::Codex) && provider.has_official_category() {
             crate::codex_config::strip_codex_unified_session_bucket_from_settings(
                 &mut provider.settings_config,
             )?;
@@ -6430,7 +6469,7 @@ impl ProviderService {
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
 
         if provider_id_changed {
-            if !app_type.is_additive_mode() {
+            if !app_type.spec().additive {
                 return Err(AppError::Message(
                     "Only additive-mode providers support changing provider key".to_string(),
                 ));
@@ -6504,7 +6543,7 @@ impl ProviderService {
 
         // Additive mode apps (OpenCode, OpenClaw): only sync to live when the provider
         // already exists in live config. Editing a DB-only provider must not auto-add it.
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             let omo_variant = if matches!(app_type, AppType::OpenCode) {
                 match provider.category.as_deref() {
                     Some("omo") => Some(&crate::services::omo::STANDARD),
@@ -6539,6 +6578,13 @@ impl ProviderService {
                 }
                 return Ok(true);
             }
+            if app_type == AppType::WorkBuddy
+                && crate::workbuddy_config::is_official_provider(&provider)
+            {
+                Self::set_provider_live_config_managed(&mut provider, false);
+                state.db.save_provider(app_type.as_str(), &provider)?;
+                return Ok(true);
+            }
             let live_config_managed = Self::check_live_config_exists(
                 &app_type,
                 &provider.id,
@@ -6568,6 +6614,15 @@ impl ProviderService {
                     live_config_managed,
                     false,
                 );
+            }
+
+            // WorkBuddy's write can be refused (a model ID owned by someone else in
+            // models.json) without touching the file: write it first so a refusal
+            // leaves the saved row unchanged too.
+            if app_type == AppType::WorkBuddy && live_config_managed {
+                write_live_for_state(state, &app_type, &provider)?;
+                state.db.save_provider(app_type.as_str(), &provider)?;
+                return Ok(true);
             }
 
             // Save to database after live-config presence is resolved so parse errors
@@ -6747,7 +6802,7 @@ impl ProviderService {
         }
 
         // Additive mode apps - no current provider concept
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             // Single DB read shared across all additive-mode sub-paths below.
             let existing = state.db.get_provider_by_id(id, app_type.as_str())?;
 
@@ -6782,7 +6837,11 @@ impl ProviderService {
             let live_managed = existing
                 .as_ref()
                 .and_then(Self::provider_live_config_managed);
-            if Self::check_live_config_exists(&app_type, id, live_managed)? {
+            let workbuddy_official = app_type == AppType::WorkBuddy
+                && existing
+                    .as_ref()
+                    .is_some_and(crate::workbuddy_config::is_official_provider);
+            if !workbuddy_official && Self::check_live_config_exists(&app_type, id, live_managed)? {
                 match app_type {
                     AppType::OpenCode => remove_opencode_provider_from_live(id)?,
                     AppType::OpenClaw => remove_openclaw_provider_from_live(id)?,
@@ -6790,6 +6849,7 @@ impl ProviderService {
                     AppType::Mcode => crate::mcode_config::remove_provider(id)?,
                     AppType::Kimi => crate::kimi_config::remove_provider(id)?,
                     AppType::Dsh => crate::dsh_config::remove_provider(id)?,
+                    AppType::WorkBuddy => crate::workbuddy_config::remove_provider(id)?,
                     AppType::Commandcode => crate::commandcode_config::remove_provider(id)?,
                     _ => {}
                 }
@@ -6922,6 +6982,16 @@ impl ProviderService {
             return omp::remove(state, id);
         }
 
+        if app_type == AppType::WorkBuddy {
+            if let Some(mut provider) = state.db.get_provider_by_id(id, app_type.as_str())? {
+                if crate::workbuddy_config::is_official_provider(&provider) {
+                    Self::set_provider_live_config_managed(&mut provider, false);
+                    state.db.save_provider(app_type.as_str(), &provider)?;
+                    return Ok(());
+                }
+            }
+        }
+
         match app_type {
             AppType::OpenCode => {
                 let provider_category = state
@@ -6960,6 +7030,7 @@ impl ProviderService {
             AppType::Mcode => crate::mcode_config::remove_provider(id)?,
             AppType::Kimi => crate::kimi_config::remove_provider(id)?,
             AppType::Dsh => crate::dsh_config::remove_provider(id)?,
+            AppType::WorkBuddy => crate::workbuddy_config::remove_provider(id)?,
             AppType::Commandcode => crate::commandcode_config::remove_provider(id)?,
             _ => {
                 return Err(AppError::Message(format!(
@@ -7074,6 +7145,16 @@ impl ProviderService {
         let _provider = providers
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
+        // WorkBuddy 官方登录卡不写 models.json，卡片的「添加」走账号切换（还原绑定账号的登录文件）
+        if app_type == AppType::WorkBuddy
+            && crate::workbuddy_config::is_official_provider(_provider)
+        {
+            return Err(AppError::localized(
+                "workbuddy.switch.official",
+                "WorkBuddy 官方登录卡不写进模型配置；在供应商列表点这张卡的「添加」会切换到它绑定的账号",
+                "WorkBuddy official sign-in cards are not written to the model config; click Add on the card in the provider list to switch to its account",
+            ));
+        }
 
         if matches!(app_type, AppType::Dsh) {
             let mut provider = _provider.clone();
@@ -7121,7 +7202,7 @@ impl ProviderService {
         if crate::mode::current::is_proxy(&app_type) {
             // 代理模式：只换代理路由，直连指针不变。契约没变时客户端文件不读也不写；
             // 变了在同一个操作里先改写客户端，再发布路由。
-            if _provider.category.as_deref() == Some("official")
+            if _provider.has_official_category()
                 && !official_provider_supports_proxy_takeover(&app_type, _provider)
             {
                 return Err(AppError::localized(
@@ -7165,7 +7246,7 @@ impl ProviderService {
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
 
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             log::info!("[SWITCH] {} 写入 {id}（累加式应用）", app_type.as_str());
         } else {
             let previous = crate::mode::current::provider_for(
@@ -7221,7 +7302,7 @@ impl ProviderService {
         let mut result = SwitchResult::default();
 
         // Additive mode apps skip setting is_current (no such concept).
-        if !app_type.is_additive_mode() {
+        if !app_type.spec().additive {
             crate::settings::set_current_provider(&app_type, Some(id))?;
             state.db.set_current_provider(app_type.as_str(), id)?;
         }
@@ -7254,8 +7335,7 @@ impl ProviderService {
         //
         // If persisting the marker fails, roll back the just-written live config so we don't leave
         // the provider in a silent inconsistent state (present in live, but still marked DB-only).
-        if app_type.is_additive_mode() && Self::provider_live_config_managed(provider) != Some(true)
-        {
+        if app_type.spec().additive && Self::provider_live_config_managed(provider) != Some(true) {
             let mut updated = provider.clone();
             Self::set_provider_live_config_managed(&mut updated, true);
             if let Err(e) = state.db.save_provider(app_type.as_str(), &updated) {
@@ -7266,6 +7346,7 @@ impl ProviderService {
                     AppType::Mcode => crate::mcode_config::remove_provider(&provider.id),
                     AppType::Kimi => crate::kimi_config::remove_provider(&provider.id),
                     AppType::Dsh => crate::dsh_config::remove_provider(&provider.id),
+                    AppType::WorkBuddy => crate::workbuddy_config::remove_provider(&provider.id),
                     AppType::Commandcode => {
                         crate::commandcode_config::remove_provider(&provider.id)
                     }
@@ -7420,7 +7501,7 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<(), AppError> {
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             return sync_additive_app_to_live(state, &app_type);
         }
         // 没有正在用的那家、或者在代理模式（客户端文件没按直连重写）时不重投影 MCP。
@@ -7436,7 +7517,7 @@ impl ProviderService {
         app_type: AppType,
         legacy_snippet: &str,
     ) -> Result<(), AppError> {
-        if app_type.is_additive_mode() || legacy_snippet.trim().is_empty() {
+        if app_type.spec().additive || legacy_snippet.trim().is_empty() {
             return Ok(());
         }
 
@@ -7489,7 +7570,7 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<(), AppError> {
-        if app_type.is_additive_mode() {
+        if app_type.spec().additive {
             return Ok(());
         }
 
@@ -7536,9 +7617,10 @@ impl ProviderService {
             | AppType::Mcode
             | AppType::Kimi
             | AppType::Dsh
-            | AppType::Omp
             | AppType::Agy
+            | AppType::Omp
             | AppType::Copilot
+            | AppType::WorkBuddy
             | AppType::Commandcode => Ok(String::new()),
         }
     }
@@ -7561,9 +7643,10 @@ impl ProviderService {
             | AppType::Mcode
             | AppType::Kimi
             | AppType::Dsh
-            | AppType::Omp
             | AppType::Agy
+            | AppType::Omp
             | AppType::Copilot
+            | AppType::WorkBuddy
             | AppType::Commandcode => Ok(String::new()),
         }
     }
@@ -8131,16 +8214,6 @@ impl ProviderService {
         endpoints::remove_custom_endpoint(state, app_type, provider_id, url)
     }
 
-    /// Update endpoint last used timestamp (re-export)
-    pub fn update_endpoint_last_used(
-        state: &AppState,
-        app_type: AppType,
-        provider_id: &str,
-        url: String,
-    ) -> Result<(), AppError> {
-        endpoints::update_endpoint_last_used(state, app_type, provider_id, url)
-    }
-
     /// Update provider sort order
     pub fn update_sort_order(
         state: &AppState,
@@ -8279,7 +8352,7 @@ impl ProviderService {
                             "Grok Build configuration is missing the config field",
                         )
                     })?;
-                if provider.category.as_deref() == Some("official") {
+                if provider.has_official_category() {
                     // 官方条目走 Grok CLI 自带 OAuth：空 config 合法，
                     // 其余内容只要求 TOML 语法合法。
                     crate::grok_config::validate_config_toml_syntax(config)?;
@@ -8340,6 +8413,17 @@ impl ProviderService {
             AppType::Mcode => {
                 crate::mcode_config::validate_provider(&provider.id, &provider.settings_config)?
             }
+            // 官方登录卡只存账号绑定，没有模型配置
+            AppType::WorkBuddy if crate::workbuddy_config::is_official_provider(provider) => {
+                if !provider.settings_config.is_object() {
+                    return Err(AppError::InvalidInput(
+                        "WorkBuddy configuration must be a JSON object".into(),
+                    ));
+                }
+            }
+            AppType::WorkBuddy => {
+                crate::workbuddy_config::validate_provider(&provider.settings_config)?
+            }
             AppType::Commandcode => crate::commandcode_config::validate_provider(
                 &provider.id,
                 &provider.settings_config,
@@ -8360,287 +8444,6 @@ impl ProviderService {
         }
 
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    fn extract_credentials(
-        provider: &Provider,
-        app_type: &AppType,
-    ) -> Result<(String, String), AppError> {
-        match app_type {
-            AppType::Claude => {
-                let env = provider
-                    .settings_config
-                    .get("env")
-                    .and_then(|v| v.as_object())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.claude.env.missing",
-                            "配置格式错误: 缺少 env",
-                            "Invalid configuration: missing env section",
-                        )
-                    })?;
-
-                let api_key = env
-                    .get("ANTHROPIC_AUTH_TOKEN")
-                    .or_else(|| env.get("ANTHROPIC_API_KEY"))
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.claude.api_key.missing",
-                            "缺少 API Key",
-                            "API key is missing",
-                        )
-                    })?
-                    .to_string();
-
-                let base_url = env
-                    .get("ANTHROPIC_BASE_URL")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.claude.base_url.missing",
-                            "缺少 ANTHROPIC_BASE_URL 配置",
-                            "Missing ANTHROPIC_BASE_URL configuration",
-                        )
-                    })?
-                    .to_string();
-
-                Ok((api_key, base_url))
-            }
-            AppType::GrokBuild => {
-                let config_toml = provider
-                    .settings_config
-                    .get("config")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.grokbuild.config.missing",
-                            "Grok Build 配置缺少 config 字段",
-                            "Grok Build configuration is missing the config field",
-                        )
-                    })?;
-                let (base_url, api_key) = crate::grok_config::extract_credentials(config_toml)
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.grokbuild.credentials.missing",
-                            "Grok Build 配置缺少 Base URL 或 API Key",
-                            "Grok Build configuration is missing the base URL or API key",
-                        )
-                    })?;
-                Ok((api_key, base_url))
-            }
-            AppType::ClaudeDesktop => {
-                let credentials =
-                    crate::claude_desktop_config::direct_gateway_credentials(provider)?;
-                Ok((credentials.api_key, credentials.base_url))
-            }
-            AppType::Codex => {
-                let _auth = provider
-                    .settings_config
-                    .get("auth")
-                    .and_then(|v| v.as_object())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.codex.auth.missing",
-                            "配置格式错误: 缺少 auth",
-                            "Invalid configuration: missing auth section",
-                        )
-                    })?;
-
-                let config_toml = provider
-                    .settings_config
-                    .get("config")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                let api_key = crate::codex_config::extract_codex_api_key(
-                    provider.settings_config.get("auth"),
-                    Some(config_toml),
-                )
-                .ok_or_else(|| {
-                    AppError::localized(
-                        "provider.codex.api_key.missing",
-                        "缺少 API Key",
-                        "API key is missing",
-                    )
-                })?;
-
-                let base_url = if config_toml.contains("base_url") {
-                    let re = Regex::new(r#"base_url\s*=\s*["']([^"']+)["']"#).map_err(|e| {
-                        AppError::localized(
-                            "provider.regex_init_failed",
-                            format!("正则初始化失败: {e}"),
-                            format!("Failed to initialize regex: {e}"),
-                        )
-                    })?;
-                    re.captures(config_toml)
-                        .and_then(|caps| caps.get(1))
-                        .map(|m| m.as_str().to_string())
-                        .ok_or_else(|| {
-                            AppError::localized(
-                                "provider.codex.base_url.invalid",
-                                "config.toml 中 base_url 格式错误",
-                                "base_url in config.toml has invalid format",
-                            )
-                        })?
-                } else {
-                    return Err(AppError::localized(
-                        "provider.codex.base_url.missing",
-                        "config.toml 中缺少 base_url 配置",
-                        "base_url is missing from config.toml",
-                    ));
-                };
-
-                Ok((api_key, base_url))
-            }
-            AppType::Gemini | AppType::Agy => {
-                use crate::gemini_config::json_to_env;
-
-                let env_map = json_to_env(&provider.settings_config)?;
-
-                let api_key = env_map.get("GEMINI_API_KEY").cloned().ok_or_else(|| {
-                    AppError::localized(
-                        "gemini.missing_api_key",
-                        "缺少 GEMINI_API_KEY",
-                        "Missing GEMINI_API_KEY",
-                    )
-                })?;
-
-                let base_url = env_map
-                    .get("GOOGLE_GEMINI_BASE_URL")
-                    .cloned()
-                    .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
-
-                Ok((api_key, base_url))
-            }
-            AppType::Copilot => {
-                // 新形状在 provider 节点；旧版环境变量形状的行还没被列表转换时兜底。
-                let settings =
-                    crate::copilot_config::convert_legacy_settings(&provider.settings_config)
-                        .unwrap_or_else(|| provider.settings_config.clone());
-                let get = |key: &str| {
-                    settings
-                        .get("provider")
-                        .and_then(|provider| provider.get(key))
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string)
-                };
-                let api_key = get("apiKey")
-                    .or_else(|| get("bearerToken"))
-                    .unwrap_or_default();
-                let base_url = get("baseUrl").ok_or_else(|| {
-                    AppError::localized(
-                        "copilot.missing_base_url",
-                        "缺少自带模型的接口地址",
-                        "Missing the bring-your-own-model endpoint",
-                    )
-                })?;
-                Ok((api_key, base_url))
-            }
-            AppType::OpenCode => {
-                // OpenCode uses options.apiKey and options.baseURL
-                let options = provider
-                    .settings_config
-                    .get("options")
-                    .and_then(|v| v.as_object())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.opencode.options.missing",
-                            "配置格式错误: 缺少 options",
-                            "Invalid configuration: missing options section",
-                        )
-                    })?;
-
-                let api_key = options
-                    .get("apiKey")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.opencode.api_key.missing",
-                            "缺少 API Key",
-                            "API key is missing",
-                        )
-                    })?
-                    .to_string();
-
-                let base_url = options
-                    .get("baseURL")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                Ok((api_key, base_url))
-            }
-            AppType::Commandcode => Ok((
-                provider
-                    .settings_config
-                    .pointer("/options/apiKey")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-                provider
-                    .settings_config
-                    .pointer("/options/baseURL")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-            )),
-            AppType::Dsh => Ok((
-                provider
-                    .settings_config
-                    .pointer("/options/apiKey")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-                provider
-                    .settings_config
-                    .pointer("/options/baseURL")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-            )),
-            AppType::Kimi => Ok((
-                provider
-                    .settings_config
-                    .pointer("/provider/api_key")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-                provider
-                    .settings_config
-                    .pointer("/provider/base_url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .into(),
-            )),
-            AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode | AppType::Omp => {
-                // These native formats use apiKey and baseUrl directly on the object.
-                let api_key = provider
-                    .settings_config
-                    .get("apiKey")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AppError::localized(
-                            "provider.openclaw.api_key.missing",
-                            "缺少 API Key",
-                            "API key is missing",
-                        )
-                    })?
-                    .to_string();
-
-                let base_url = provider
-                    .settings_config
-                    .get("baseUrl")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                Ok((api_key, base_url))
-            }
-        }
     }
 }
 

@@ -3,6 +3,7 @@ mod agy_config;
 mod agy_smoke_tests;
 mod app_config;
 mod app_store;
+mod app_update;
 mod auto_launch;
 mod claude_desktop_config;
 mod claude_mcp;
@@ -19,6 +20,8 @@ mod database;
 mod deeplink;
 mod dsh_config;
 mod error;
+#[cfg(test)]
+mod frontend_parity_tests;
 mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
@@ -43,11 +46,13 @@ mod pi_config;
 mod prompt;
 mod prompt_files;
 mod provider;
+mod provider_kind;
 mod proxy;
 mod services;
 mod session_manager;
 mod settings;
 mod store;
+mod sync_utils;
 
 mod tray;
 #[cfg(target_os = "windows")]
@@ -56,7 +61,9 @@ mod tray_panel;
 mod usage_events;
 mod usage_script;
 mod window_fit;
+mod workbuddy_config;
 
+use crate::sync_utils::MutexExt;
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{
     extract_codex_experimental_bearer_token, get_codex_auth_path, get_codex_config_path,
@@ -78,9 +85,14 @@ pub use mcp::{
 };
 pub use prompt::Prompt;
 pub use provider::{Provider, ProviderMeta};
+#[doc(hidden)]
+pub use services::provider::claude_direct::settle_claude_tombstones;
 pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService, NO_ACTIVE_PROMPT},
-    provider::{reapply_current_codex_official_live, EditorSave, EditorView},
+    provider::{
+        reapply_current_codex_official_live, reapply_current_codex_third_party_live, EditorSave,
+        EditorView,
+    },
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
     SkillService, SpeedtestService,
@@ -432,7 +444,7 @@ fn raise_open_file_limit() {
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn handle_second_instance(app: &tauri::AppHandle, args: Vec<String>) {
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = SERIAL.lock_recover();
     log::debug!("Args count: {}", args.len());
     for (i, arg) in args.iter().enumerate() {
         log::debug!("  arg[{i}]: {}", url_for_log(arg));
@@ -816,6 +828,8 @@ pub fn run() {
             // 补完上次崩溃时写到一半的客户端文件（写前意图在 ~/.cc-switch/live-state.json），
             // 要在任何写客户端文件的启动步骤之前。
             crate::mode::operation::recover_on_startup(&app_state.db);
+            // 上次退出或崩溃前没来得及删的 Claude 空值墓碑（切换时给开着的会话写的）接着删
+            crate::services::provider::claude_direct::resume_tombstone_sweep();
 
             // ============================================================
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
@@ -1185,6 +1199,7 @@ pub fn run() {
                     crate::app_config::AppType::Hermes,
                     crate::app_config::AppType::Pi,
                     crate::app_config::AppType::Mcode,
+                    crate::app_config::AppType::WorkBuddy,
                 ] {
                     match crate::services::prompt::PromptService::import_from_file_on_first_launch(
                         &app_state,
@@ -1292,12 +1307,15 @@ pub fn run() {
             // Linux（AppIndicator）不派发点击事件，只能出原生菜单，菜单里有一项打开面板。
             let native_menu = tray_panel::uses_native_menu();
             let mut tray_builder = TrayIconBuilder::with_id(tray::TRAY_ID)
-                .tooltip("CC Switch") // 鼠标悬停提示
                 .on_tray_icon_event(tray::handle_tray_icon_event)
                 .on_menu_event(|app, event| {
                     tray::handle_tray_menu_event(app, &event.id.0);
                 })
                 .show_menu_on_left_click(tray::native_menu_on_left_click(native_menu));
+            // 鼠标悬停提示（macOS 不设，见 `tray::TRAY_TOOLTIP_ENABLED`）
+            if tray::TRAY_TOOLTIP_ENABLED {
+                tray_builder = tray_builder.tooltip("CC Switch");
+            }
             if native_menu {
                 let menu = tray::create_tray_menu(app.handle(), &app_state)?;
                 tray_builder = tray_builder.menu(&menu);
@@ -1319,11 +1337,10 @@ pub fn run() {
             let _tray = tray_builder.build(app)?;
             #[cfg(target_os = "windows")]
             tray_compat::install(app.handle());
-            crate::services::webdav_auto_sync::start_worker(
-                app_state.db.clone(),
-                app.handle().clone(),
-            );
-            crate::services::s3_auto_sync::start_worker(
+            crate::services::auto_sync::start_worker::<
+                crate::services::webdav_auto_sync::WebDavAutoSync,
+            >(app_state.db.clone(), app.handle().clone());
+            crate::services::auto_sync::start_worker::<crate::services::s3_auto_sync::S3AutoSync>(
                 app_state.db.clone(),
                 app.handle().clone(),
             );
@@ -1377,6 +1394,13 @@ pub fn run() {
                 app.manage(commands::AgyAccountState(Arc::new(manager)));
             }
 
+            // WorkBuddy 官方账号（授权中心收录、切换桌面端登录的快照）
+            {
+                use crate::services::workbuddy_account::WorkBuddyAccountManager;
+                let manager = WorkBuddyAccountManager::new(crate::config::get_app_config_dir());
+                app.manage(commands::WorkBuddyAccountState(Arc::new(manager)));
+            }
+
             // Claude Code 官方订阅账号（授权中心加号；每个账号一个 CLAUDE_CONFIG_DIR）
             {
                 use crate::services::claude_account::ClaudeAccountManager;
@@ -1422,6 +1446,9 @@ pub fn run() {
                     }
                 }
             }
+
+            // 自动更新：开关打开时后台定时检查并下载新版本（装不装由用户确认）
+            crate::app_update::spawn_background_loop(app.handle().clone());
 
             // 异常退出恢复 + 代理状态自动恢复
             let app_handle = app.handle().clone();
@@ -1605,11 +1632,8 @@ pub fn run() {
             commands::get_claude_desktop_default_routes,
             commands::import_claude_desktop_providers_from_claude,
             commands::ensure_claude_desktop_official_provider,
-            commands::ensure_codex_official_provider,
             commands::ensure_grokbuild_official_provider,
-            commands::get_claude_config_status,
             commands::get_config_status,
-            commands::get_claude_code_config_path,
             commands::get_config_dir,
             commands::open_config_folder,
             commands::pick_directory,
@@ -1617,14 +1641,8 @@ pub fn run() {
             commands::get_init_error,
             commands::get_migration_result,
             commands::get_skills_migration_result,
-            commands::get_app_config_path,
             commands::open_app_config_folder,
             commands::reveal_app_log_file,
-            commands::get_claude_common_config_snippet,
-            commands::set_claude_common_config_snippet,
-            commands::get_common_config_snippet,
-            commands::set_common_config_snippet,
-            commands::extract_common_config_snippet,
             commands::read_live_provider_settings,
             commands::get_settings,
             commands::save_settings,
@@ -1640,27 +1658,23 @@ pub fn run() {
             commands::set_optimizer_config,
             commands::get_privacy_filter_config,
             commands::set_privacy_filter_config,
-            commands::get_copilot_optimizer_config,
-            commands::set_copilot_optimizer_config,
             commands::get_log_config,
             commands::set_log_config,
             commands::restart_app,
             commands::install_update_and_restart,
+            commands::get_auto_update_status,
+            commands::download_app_update,
             commands::check_app_update_available,
             commands::check_for_updates,
             commands::open_portable_update_download,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
-            commands::get_claude_plugin_status,
-            commands::read_claude_plugin_config,
             commands::apply_claude_plugin_config,
-            commands::is_claude_plugin_applied,
             commands::apply_claude_onboarding_skip,
             commands::clear_claude_onboarding_skip,
             // Claude MCP management
             commands::get_claude_mcp_status,
             commands::read_claude_mcp_config,
-            commands::upsert_claude_mcp_server,
             commands::delete_claude_mcp_server,
             commands::validate_mcp_command,
             // usage query
@@ -1676,9 +1690,6 @@ pub fn run() {
             commands::get_balance,
             // New MCP via config.json (SSOT)
             commands::get_mcp_config,
-            commands::upsert_mcp_server_in_config,
-            commands::delete_mcp_server_in_config,
-            commands::set_mcp_enabled,
             // Unified MCP management
             commands::get_mcp_servers,
             commands::start_mcp_connectivity_checks,
@@ -1725,7 +1736,6 @@ pub fn run() {
             commands::get_custom_endpoints,
             commands::add_custom_endpoint,
             commands::remove_custom_endpoint,
-            commands::update_endpoint_last_used,
             // app_config_dir override via Store
             commands::get_app_config_dir_override,
             commands::set_app_config_dir_override,
@@ -1744,6 +1754,7 @@ pub fn run() {
             commands::s3_sync_upload,
             commands::s3_sync_download,
             commands::s3_sync_save_settings,
+            commands::s3_sync_clear_settings,
             commands::s3_sync_fetch_remote_info,
             commands::save_file_dialog,
             commands::open_file_dialog,
@@ -1758,10 +1769,8 @@ pub fn run() {
             commands::delete_db_backup,
             commands::sync_current_providers_live,
             // Deep link import
-            commands::parse_deeplink,
             commands::merge_deeplink_config,
             commands::fetch_deeplink_icon,
-            commands::import_from_deeplink,
             commands::import_from_deeplink_unified,
             commands::peek_pending_deeplink,
             commands::ack_pending_deeplink,
@@ -1769,7 +1778,6 @@ pub fn run() {
             // Environment variable management
             commands::check_env_conflicts,
             commands::delete_env_vars,
-            commands::restore_env_backup,
             // Skill management (v3.10.0+ unified)
             commands::get_installed_skills,
             commands::refresh_local_skill_metadata,
@@ -1804,7 +1812,6 @@ pub fn run() {
             commands::install_skills_from_zip,
             // Auto launch
             commands::set_auto_launch,
-            commands::get_auto_launch_status,
             // Proxy server management
             commands::start_proxy_server,
             commands::stop_proxy_server,
@@ -1822,10 +1829,7 @@ pub fn run() {
             tray_panel::tray_panel_action,
             tray::tray_app_page_seen,
             commands::exit_proxy_apps_in_mode,
-            commands::get_direct_provider,
             commands::get_proxy_status,
-            commands::get_proxy_config,
-            commands::update_proxy_config,
             // Global & Per-App Config
             commands::get_global_proxy_config,
             commands::update_global_proxy_config,
@@ -1835,9 +1839,6 @@ pub fn run() {
             commands::update_proxy_config_for_app,
             commands::get_pricing_model_source,
             commands::set_pricing_model_source,
-            commands::is_proxy_running,
-            commands::is_live_takeover_active,
-            commands::switch_proxy_provider,
             commands::get_proxy_stack,
             commands::set_proxy_stack_member,
             commands::adopt_codex_stack_catalog,
@@ -1845,13 +1846,8 @@ pub fn run() {
             commands::acknowledge_codex_stale_clients,
             // Proxy failover commands
             commands::get_provider_health,
-            commands::reset_circuit_breaker,
-            commands::get_circuit_breaker_config,
-            commands::update_circuit_breaker_config,
-            commands::get_circuit_breaker_stats,
             // Failover queue management
             commands::get_failover_queue,
-            commands::get_available_providers_for_failover,
             commands::add_to_failover_queue,
             commands::remove_from_failover_queue,
             commands::get_auto_failover_enabled,
@@ -1874,12 +1870,10 @@ pub fn run() {
             commands::save_models_dev_sync_config,
             commands::record_models_dev_sync_result,
             commands::fetch_models_dev,
-            commands::check_provider_limits,
             // Session usage sync
             commands::sync_session_usage,
             commands::rebuild_codex_usage,
             commands::get_session_usage_last_sync,
-            commands::get_usage_data_sources,
             commands::fetch_exchange_rates,
             // Stream health check
             commands::stream_check_provider,
@@ -1938,7 +1932,6 @@ pub fn run() {
             // Hermes specific
             commands::import_hermes_providers_from_live,
             commands::get_hermes_live_provider_ids,
-            commands::get_hermes_live_provider,
             commands::get_hermes_model_config,
             commands::open_hermes_web_ui,
             commands::launch_hermes_dashboard,
@@ -1950,21 +1943,26 @@ pub fn run() {
             commands::get_global_proxy_url,
             commands::set_global_proxy_url,
             commands::test_proxy_url,
-            commands::get_upstream_proxy_status,
             commands::scan_local_proxies,
+            commands::diagnose_ip,
             // Window theme control
             commands::set_window_theme,
             // Generic managed auth commands
             commands::auth_start_login,
             commands::auth_poll_for_account,
             commands::auth_cancel_login,
-            commands::auth_list_accounts,
             commands::auth_get_status,
             commands::auth_remove_account,
             commands::auth_set_default_account,
             commands::auth_logout,
             commands::agy_account_is_running,
             commands::agy_account_quota,
+            commands::workbuddy_account_live_state,
+            commands::workbuddy_model_owners,
+            commands::workbuddy_account_import_current,
+            commands::workbuddy_account_prepare_new_login,
+            commands::workbuddy_account_open_app,
+            commands::workbuddy_account_quota,
             commands::claude_account_submit_paste,
             commands::get_claude_account_quota,
             commands::get_claude_default_plan,
@@ -1983,17 +1981,6 @@ pub fn run() {
             commands::kimi_oauth_use_account,
             commands::kimi_oauth_models,
             // Copilot OAuth commands (multi-account support)
-            commands::copilot_start_device_flow,
-            commands::copilot_poll_for_auth,
-            commands::copilot_poll_for_account,
-            commands::copilot_list_accounts,
-            commands::copilot_remove_account,
-            commands::copilot_set_default_account,
-            commands::copilot_get_auth_status,
-            commands::copilot_logout,
-            commands::copilot_is_authenticated,
-            commands::copilot_get_token,
-            commands::copilot_get_token_for_account,
             commands::copilot_get_models,
             commands::copilot_get_models_for_account,
             commands::copilot_get_usage,
@@ -2016,10 +2003,6 @@ pub fn run() {
             commands::delete_daily_memory_file,
             commands::search_daily_memory_files,
             commands::open_workspace_directory,
-            // lightweight mode (for testing or low-resource environments)
-            commands::enter_lightweight_mode,
-            commands::exit_lightweight_mode,
-            commands::is_lightweight_mode,
         ]);
 
     let app = builder
@@ -2138,11 +2121,22 @@ pub fn run() {
 pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
     if let Some(state) = app_handle.try_state::<store::AppState>() {
         crate::mode::controller::detach_all(state.inner()).await;
+        // 切换后几秒内退出：给开着的 Claude Code 会话写的空值墓碑现在删掉（刚写的最多等 3 秒），
+        // 不留到下次启动
+        let _ = tokio::task::spawn_blocking(
+            crate::services::provider::claude_direct::finish_tombstones_before_exit,
+        )
+        .await;
         log::info!("退出清理完成：客户端已指回直连，代理已停止");
     }
 }
 
 /// 系统终止应用时最多等退出清理这么久：停代理服务自带 5 秒超时，指回直连只是写几个文件。
+///
+/// 删 Claude 空值墓碑前最多等 3 秒（`claude_direct::TOMBSTONE_MIN_VISIBLE`），但这 3 秒从
+/// 切换写入墓碑那一刻算，指回直连、停代理花掉的时间也算在里面，所以不会再叠加 3 秒：最坏
+/// 是两者取大（5 秒）再加写几个文件。只有真写了墓碑、而且是切换后 3 秒内退出才会等。
+/// 超时也不弄坏文件：空值留着（Claude Code 读到等于没设），下次启动接着删。
 const SYSTEM_EXIT_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// 系统直接终止应用时（macOS ⌘Q、Dock「退出」、注销关机）的退出清理。

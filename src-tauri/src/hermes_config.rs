@@ -424,7 +424,7 @@ fn write_yaml_section_to_config(
     section_key: &str,
     value: &serde_yaml::Value,
 ) -> Result<HermesWriteOutcome, AppError> {
-    let _guard = hermes_write_lock().lock()?;
+    let _guard = crate::sync_utils::lock_file_operation(hermes_write_lock());
     write_yaml_section_to_config_locked(section_key, value)
 }
 
@@ -793,7 +793,7 @@ pub fn set_provider(
     name: &str,
     provider_config: serde_json::Value,
 ) -> Result<HermesWriteOutcome, AppError> {
-    let _guard = hermes_write_lock().lock()?;
+    let _guard = crate::sync_utils::lock_file_operation(hermes_write_lock());
 
     let config = read_hermes_config()?;
     ensure_provider_writable(&config, name, "edit")?;
@@ -872,7 +872,7 @@ pub fn remove_provider(name: &str) -> Result<HermesWriteOutcome, AppError> {
         .map(String::from);
 
     let outcome = {
-        let _guard = hermes_write_lock().lock()?;
+        let _guard = crate::sync_utils::lock_file_operation(hermes_write_lock());
         let config = read_hermes_config()?;
 
         ensure_provider_writable(&config, name, "remove")?;
@@ -1070,7 +1070,7 @@ pub fn update_mcp_servers_yaml<F>(updater: F) -> Result<(), AppError>
 where
     F: FnOnce(&mut serde_yaml::Mapping) -> Result<(), AppError>,
 {
-    let _guard = hermes_write_lock().lock()?;
+    let _guard = crate::sync_utils::lock_file_operation(hermes_write_lock());
     let config = read_hermes_config()?;
     let mut servers = config
         .get("mcp_servers")
@@ -1190,7 +1190,7 @@ impl Default for HermesMemoryLimits {
 /// `user_profile_enabled` (not `user_enabled`), so the mapping to on-disk keys
 /// lives here rather than leaking to callers.
 pub fn set_memory_enabled(kind: MemoryKind, enabled: bool) -> Result<HermesWriteOutcome, AppError> {
-    let _guard = hermes_write_lock().lock()?;
+    let _guard = crate::sync_utils::lock_file_operation(hermes_write_lock());
     let config = read_hermes_config()?;
 
     let mut memory = match config.get("memory") {
@@ -1243,14 +1243,13 @@ pub fn read_memory_limits() -> Result<HermesMemoryLimits, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync_utils::MutexExt;
     use serial_test::serial;
     use std::sync::{Mutex, OnceLock};
 
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+        LOCK.get_or_init(|| Mutex::new(())).lock_recover()
     }
 
     /// Run a test with an isolated temp home directory.

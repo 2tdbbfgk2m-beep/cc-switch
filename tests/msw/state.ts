@@ -85,6 +85,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
   agy: {},
   omp: {},
   copilot: {},
+  workbuddy: {},
   commandcode: {},
 });
 
@@ -104,6 +105,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
   agy: "",
   omp: "",
   copilot: "",
+  workbuddy: "",
   commandcode: "",
 });
 
@@ -225,6 +227,7 @@ let mcpConfigs: McpConfigState = {
   agy: {},
   omp: {},
   copilot: {},
+  workbuddy: {},
   commandcode: {},
 };
 
@@ -253,6 +256,21 @@ export interface CustomIconFixture {
 }
 
 let customIconsState: CustomIconFixture[] = [];
+
+export interface WorkBuddyModelOwnerFixture {
+  id: string;
+  owner: string | null;
+}
+let workbuddyModelOwnersState: WorkBuddyModelOwnerFixture[] = [];
+
+export const getWorkBuddyModelOwners = () =>
+  deepClone(workbuddyModelOwnersState);
+
+export const setWorkBuddyModelOwners = (
+  owners: WorkBuddyModelOwnerFixture[],
+) => {
+  workbuddyModelOwnersState = deepClone(owners);
+};
 
 export const listCustomIcons = () => deepClone(customIconsState);
 
@@ -288,6 +306,7 @@ export const deleteCustomIcon = (id: string) => {
 export const resetProviderState = () => {
   pendingDeepLink = null;
   customIconsState = [];
+  workbuddyModelOwnersState = [];
   providers = createDefaultProviders();
   current = createDefaultCurrent();
   liveProviderIds = {
@@ -358,6 +377,7 @@ export const resetProviderState = () => {
     agy: {},
     omp: {},
     copilot: {},
+    workbuddy: {},
     commandcode: {},
   };
 };
@@ -380,15 +400,6 @@ export const setLiveProviderIds = (
 
 export const setCurrentProviderId = (appType: AppId, providerId: string) => {
   current[appType] = providerId;
-};
-
-export const updateProviders = (
-  appType: AppId,
-  data: Record<string, Provider>,
-) => {
-  providers[appType] = cloneProviders({ [appType]: data } as ProvidersByApp)[
-    appType
-  ];
 };
 
 export const setProviders = (
@@ -457,41 +468,6 @@ export const getMcpConfig = (appType: AppId) => {
     configPath: `/mock/${appType}.mcp.json`,
     servers,
   };
-};
-
-export const setMcpConfig = (
-  appType: AppId,
-  value: Record<string, McpServer>,
-) => {
-  mcpConfigs[appType] = deepClone(value) as Record<string, McpServer>;
-};
-
-export const setMcpServerEnabled = (
-  appType: AppId,
-  id: string,
-  enabled: boolean,
-) => {
-  if (!mcpConfigs[appType]?.[id]) return;
-  mcpConfigs[appType][id] = {
-    ...mcpConfigs[appType][id],
-    enabled,
-  };
-};
-
-export const upsertMcpServer = (
-  appType: AppId,
-  id: string,
-  server: McpServer,
-) => {
-  if (!mcpConfigs[appType]) {
-    mcpConfigs[appType] = {};
-  }
-  mcpConfigs[appType][id] = deepClone(server) as McpServer;
-};
-
-export const deleteMcpServer = (appType: AppId, id: string) => {
-  if (!mcpConfigs[appType]) return;
-  delete mcpConfigs[appType][id];
 };
 
 export const listSessions = () => deepClone(sessionsState) as SessionMeta[];

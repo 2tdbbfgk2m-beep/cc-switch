@@ -36,6 +36,7 @@ export interface SkillApps {
   agy?: boolean;
   omp?: boolean;
   copilot?: boolean;
+  workbuddy?: boolean;
   commandcode?: boolean;
 }
 

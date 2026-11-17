@@ -103,35 +103,12 @@ impl Database {
             enabled_kimi BOOLEAN NOT NULL DEFAULT 0,
             enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
             enabled_copilot BOOLEAN NOT NULL DEFAULT 0,
+            enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
             enabled_pi BOOLEAN NOT NULL DEFAULT 0,
             enabled_omp BOOLEAN NOT NULL DEFAULT 0,
             enabled_commandcode BOOLEAN NOT NULL DEFAULT 0
         )",
-            [],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-
-        // Historical v27 tables: retain retired slot data for non-destructive upgrades.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS commandcode_slots (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                sort_index INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL DEFAULT 0
-            )",
-            [],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS commandcode_slot_entries (
-                slot_id TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
-                model_id TEXT NOT NULL,
-                priority INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (slot_id, provider_id, model_id),
-                FOREIGN KEY (slot_id) REFERENCES commandcode_slots(id) ON DELETE CASCADE
-            )",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -164,6 +141,7 @@ impl Database {
             enabled_kimi BOOLEAN NOT NULL DEFAULT 0,
             enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
             enabled_copilot BOOLEAN NOT NULL DEFAULT 0,
+            enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
             installed_at INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT,
@@ -721,7 +699,37 @@ impl Database {
                         Self::set_user_version(conn, 25)?;
                     }
                     25 => {
+                        // WorkBuddy：MCP 与 Skills 都存开关。
+                        // 早期开发版曾把 enabled_workbuddy 记作 v23（缺 enabled_omp）、v24
+                        // （缺上游 v24 的 enabled_dsh）或 v25（缺上游 v25 的 enabled_copilot），
+                        // 这里顺带补齐这些列；所有列都按"缺失才加"处理，保证幂等。
+                        if Self::table_exists(conn, "mcp_servers")? {
+                            Self::add_column_if_missing(
+                                conn,
+                                "mcp_servers",
+                                "enabled_omp",
+                                "BOOLEAN NOT NULL DEFAULT 0",
+                            )?;
+                        }
+                        for table in ["mcp_servers", "skills"] {
+                            if Self::table_exists(conn, table)? {
+                                for column in
+                                    ["enabled_dsh", "enabled_copilot", "enabled_workbuddy"]
+                                {
+                                    Self::add_column_if_missing(
+                                        conn,
+                                        table,
+                                        column,
+                                        "BOOLEAN NOT NULL DEFAULT 0",
+                                    )?;
+                                }
+                            }
+                        }
+                        Self::set_user_version(conn, 26)?;
+                    }
+                    26 => {
                         // Command Code：只存 MCP 开关；Skills 不归 CC Switch 管。
+                        // 个人分支曾把它记为 v26，现顺延到 v27，按"缺失才加"保证幂等。
                         if Self::table_exists(conn, "mcp_servers")? {
                             Self::add_column_if_missing(
                                 conn,
@@ -730,28 +738,39 @@ impl Database {
                                 "BOOLEAN NOT NULL DEFAULT 0",
                             )?;
                         }
-                        Self::set_user_version(conn, 26)?;
-                    }
-                    26 => {
-                        // Historical v27 migration; preserve compatibility without starting a router.
-                        conn.execute_batch(
-                            "CREATE TABLE IF NOT EXISTS commandcode_slots (
-                                id TEXT PRIMARY KEY,
-                                name TEXT NOT NULL,
-                                sort_index INTEGER NOT NULL DEFAULT 0,
-                                created_at INTEGER NOT NULL DEFAULT 0
-                            );
-                            CREATE TABLE IF NOT EXISTS commandcode_slot_entries (
-                                slot_id TEXT NOT NULL,
-                                provider_id TEXT NOT NULL,
-                                model_id TEXT NOT NULL,
-                                priority INTEGER NOT NULL DEFAULT 0,
-                                PRIMARY KEY (slot_id, provider_id, model_id),
-                                FOREIGN KEY (slot_id) REFERENCES commandcode_slots(id) ON DELETE CASCADE
-                            );",
-                        )
-                        .map_err(|e| AppError::Database(e.to_string()))?;
                         Self::set_user_version(conn, 27)?;
+                    }
+                    27 => {
+                        // 个人分支的数据库可能在上游 v26 之前就已到 27，没跑过上游的 WorkBuddy 迁移，
+                        // 这里把各应用的开关列按"缺失才加"补齐一遍。旧版个人分支在此建过的
+                        // Command Code 路由槽位表已不再使用：不再新建，已有旧表原样保留。
+                        if Self::table_exists(conn, "mcp_servers")? {
+                            for column in [
+                                "enabled_omp",
+                                "enabled_dsh",
+                                "enabled_copilot",
+                                "enabled_workbuddy",
+                                "enabled_commandcode",
+                            ] {
+                                Self::add_column_if_missing(
+                                    conn,
+                                    "mcp_servers",
+                                    column,
+                                    "BOOLEAN NOT NULL DEFAULT 0",
+                                )?;
+                            }
+                        }
+                        if Self::table_exists(conn, "skills")? {
+                            for column in ["enabled_dsh", "enabled_copilot", "enabled_workbuddy"] {
+                                Self::add_column_if_missing(
+                                    conn,
+                                    "skills",
+                                    column,
+                                    "BOOLEAN NOT NULL DEFAULT 0",
+                                )?;
+                            }
+                        }
+                        Self::set_user_version(conn, 28)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -2282,6 +2301,17 @@ impl Database {
                 "0.10",
                 "0",
             ),
+            // Hydrogen executes Orchestrator steps; standard API-equivalent estimate, not plan quota.
+            // https://aistudio.google.com/docs/pricing#gemini-4-hydrogen (2026-11-13)
+            // Output includes thinking; implicit cache only, so no cache-write charge.
+            (
+                "gemini-4-hydrogen",
+                "Gemini 4 Hydrogen",
+                "1.50",
+                "7.50",
+                "0.075",
+                "0",
+            ),
             // Gemini 3.8 系列（2026-09-02 发布，1M 窗口）
             // 介绍价 0.75/3.75/0.075 至 2026-12-31，2027-01-01 起挂牌价 1.50/7.50/0.15；口径同 3.7 Flash，勿加豁免。
             (
@@ -2820,6 +2850,9 @@ impl Database {
                 "0",
             ),
             // Qwen 系列 (阿里巴巴)
+            // 2026-11-16：https://www.qwencloud.com/models/qwen4-max（新加坡，USD/百万 token）；
+            // 无阶梯，思考/非思考同价；缓存写入取默认 5 分钟档（1 小时档 $3）。
+            ("qwen4-max", "Qwen4 Max", "1.50", "4.50", "0.075", "1.875"),
             ("qwen3.8-max", "Qwen3.8 Max", "2", "6", "0.25", "2.50"),
             // 2026-09-06：阿里国际站价页 0.15/0.47 全区间（0<Token≤1M）平价、无阶梯；
             // 缓存两列官方只注明"非常规比例"未给数字，取 models.dev（与 qwen3.8-max 同口径）
@@ -4211,6 +4244,308 @@ mod tests {
         db.save_skill(&skill)?;
         assert!(db.get_installed_skill("s")?.unwrap().apps.dsh);
         assert!(db.get_all_installed_skills()?["s"].apps.claude);
+        Ok(())
+    }
+
+    #[test]
+    fn workbuddy_migration_from_v22_preserves_flags_and_defaults_to_disabled(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN); INSERT INTO mcp_servers VALUES ('m',1); INSERT INTO skills VALUES ('s',1);")?;
+        Database::set_user_version(&conn, 22)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        for table in ["mcp_servers", "skills"] {
+            let flags = conn.query_row(
+                &format!("SELECT enabled_kimi, enabled_dsh, enabled_workbuddy FROM {table}"),
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )?;
+            assert_eq!(flags, (1, 0, 0));
+        }
+        assert!(Database::has_column(&conn, "mcp_servers", "enabled_omp")?);
+        assert!(!Database::has_column(&conn, "skills", "enabled_omp")?);
+        // Re-running is a no-op.
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 上游 v23（Oh My Pi）形态：mcp_servers 已有 enabled_omp，两张表都还没有 enabled_dsh / enabled_workbuddy。
+    #[test]
+    fn workbuddy_migration_from_upstream_v23_keeps_omp_flag() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_omp BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN); INSERT INTO mcp_servers VALUES ('m',1,1); INSERT INTO skills VALUES ('s',1);")?;
+        Database::set_user_version(&conn, 23)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let mcp = conn.query_row(
+            "SELECT enabled_kimi, enabled_omp, enabled_dsh, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        assert_eq!(mcp, (1, 1, 0, 0));
+        let skill = conn.query_row(
+            "SELECT enabled_kimi, enabled_dsh, enabled_workbuddy FROM skills",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        assert_eq!(skill, (1, 0, 0));
+        assert!(!Database::has_column(&conn, "skills", "enabled_omp")?);
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 上游 v24（DeepSeek Harness）形态：两张表已有 enabled_dsh，v24 → v25 补 enabled_copilot，v25 → v26 补 enabled_workbuddy。
+    #[test]
+    fn workbuddy_migration_from_upstream_v24_keeps_dsh_and_omp_flags() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_omp BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_dsh BOOLEAN NOT NULL DEFAULT 0); INSERT INTO mcp_servers VALUES ('m',1,1,1); INSERT INTO skills VALUES ('s',0,1);")?;
+        Database::set_user_version(&conn, 24)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let mcp = conn.query_row(
+            "SELECT enabled_kimi, enabled_omp, enabled_dsh, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        assert_eq!(mcp, (1, 1, 1, 0));
+        let skill = conn.query_row(
+            "SELECT enabled_kimi, enabled_dsh, enabled_workbuddy FROM skills",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        assert_eq!(skill, (0, 1, 0));
+        assert!(!Database::has_column(&conn, "skills", "enabled_omp")?);
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 早期 WorkBuddy 开发版把 enabled_workbuddy 记作 v23：版本号是 23，但缺 enabled_omp。
+    /// v23 → v24 补 enabled_dsh，v25 → v26 补齐 enabled_omp，并保留已有的 WorkBuddy 开关。
+    #[test]
+    fn workbuddy_migration_from_dev_v23_backfills_missing_omp_column() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); INSERT INTO mcp_servers VALUES ('m',1,1); INSERT INTO skills VALUES ('s',0,1);")?;
+        Database::set_user_version(&conn, 23)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let mcp = conn.query_row(
+            "SELECT enabled_kimi, enabled_omp, enabled_dsh, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        assert_eq!(mcp, (1, 0, 0, 1));
+        let skill = conn.query_row(
+            "SELECT enabled_kimi, enabled_dsh, enabled_workbuddy FROM skills",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        assert_eq!(skill, (0, 0, 1));
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 合并 DeepSeek Harness 之前的 WorkBuddy 开发版把 enabled_workbuddy 记作 v24：
+    /// 版本号是 24，但缺上游 v24 的 enabled_dsh。v25 → v26 需要补齐它。
+    #[test]
+    fn workbuddy_migration_from_dev_v24_backfills_missing_dsh_column() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_omp BOOLEAN NOT NULL DEFAULT 0, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); INSERT INTO mcp_servers VALUES ('m',1,1,1); INSERT INTO skills VALUES ('s',0,1);")?;
+        Database::set_user_version(&conn, 24)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let mcp = conn.query_row(
+            "SELECT enabled_kimi, enabled_omp, enabled_dsh, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        assert_eq!(mcp, (1, 1, 0, 1));
+        let skill = conn.query_row(
+            "SELECT enabled_kimi, enabled_dsh, enabled_workbuddy FROM skills",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        assert_eq!(skill, (0, 0, 1));
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 上游 v25（GitHub Copilot CLI）形态：已有 enabled_copilot，v25 → v26 只补 enabled_workbuddy。
+    #[test]
+    fn workbuddy_migration_from_upstream_v25_keeps_copilot_flags() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_omp BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0, enabled_copilot BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_kimi BOOLEAN, enabled_dsh BOOLEAN NOT NULL DEFAULT 0, enabled_copilot BOOLEAN NOT NULL DEFAULT 0); INSERT INTO mcp_servers VALUES ('m',1,1,1,1); INSERT INTO skills VALUES ('s',0,1,1);")?;
+        Database::set_user_version(&conn, 25)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let mcp = conn.query_row(
+            "SELECT enabled_omp, enabled_dsh, enabled_copilot, enabled_workbuddy FROM mcp_servers",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )?;
+        assert_eq!(mcp, (1, 1, 1, 0));
+        let skill = conn.query_row(
+            "SELECT enabled_dsh, enabled_copilot, enabled_workbuddy FROM skills",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        assert_eq!(skill, (1, 1, 0));
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    /// 合并 Copilot CLI 之前的 WorkBuddy 开发版把 enabled_workbuddy 记作 v25：
+    /// 版本号是 25，但缺上游 v25 的 enabled_copilot。v25 → v26 需要补齐它。
+    #[test]
+    fn workbuddy_migration_from_dev_v25_backfills_missing_copilot_column() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE mcp_servers(id TEXT PRIMARY KEY, enabled_omp BOOLEAN NOT NULL DEFAULT 0, enabled_dsh BOOLEAN NOT NULL DEFAULT 0, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_dsh BOOLEAN NOT NULL DEFAULT 0, enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0); INSERT INTO mcp_servers VALUES ('m',1,1,1); INSERT INTO skills VALUES ('s',1,1);")?;
+        Database::set_user_version(&conn, 25)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        for table in ["mcp_servers", "skills"] {
+            let flags = conn.query_row(
+                &format!("SELECT enabled_dsh, enabled_copilot, enabled_workbuddy FROM {table}"),
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )?;
+            assert_eq!(flags, (1, 0, 1), "table {table}");
+        }
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
+
+    #[test]
+    fn workbuddy_fresh_install_has_columns_and_persists_flags_independently() -> Result<(), AppError>
+    {
+        let db = Database::memory()?;
+        {
+            let conn = db.conn.lock().unwrap();
+            for table in ["mcp_servers", "skills"] {
+                assert!(Database::has_column(&conn, table, "enabled_workbuddy")?);
+                assert!(Database::has_column(&conn, table, "enabled_dsh")?);
+            }
+            assert!(Database::has_column(&conn, "mcp_servers", "enabled_omp")?);
+        }
+        let server = serde_json::from_value(serde_json::json!({"id":"m", "name":"m", "server":{"command":"echo"}, "apps":{"workbuddy":true,"dsh":true,"omp":true,"kimi":true}})).unwrap();
+        db.save_mcp_server(&server)?;
+        let saved = db.get_all_mcp_servers()?;
+        assert!(saved["m"].apps.workbuddy && saved["m"].apps.dsh && saved["m"].apps.omp);
+        db.update_mcp_server_app_enabled("m", &crate::app_config::AppType::WorkBuddy, false)?;
+        let saved = db.get_all_mcp_servers()?;
+        assert!(!saved["m"].apps.workbuddy);
+        assert!(saved["m"].apps.dsh);
+        assert!(saved["m"].apps.omp);
+        assert!(saved["m"].apps.kimi);
+        db.update_mcp_server_app_enabled("m", &crate::app_config::AppType::Dsh, false)?;
+        db.update_mcp_server_app_enabled("m", &crate::app_config::AppType::Omp, false)?;
+        db.update_mcp_server_app_enabled("m", &crate::app_config::AppType::WorkBuddy, true)?;
+        let saved = db.get_all_mcp_servers()?;
+        assert!(
+            saved["m"].apps.workbuddy
+                && !saved["m"].apps.dsh
+                && !saved["m"].apps.omp
+                && saved["m"].apps.kimi
+        );
+        let skill = serde_json::from_value(serde_json::json!({"id":"s", "name":"s", "description":"", "directory":"s", "apps":{"workbuddy":true,"dsh":true,"claude":true}, "installedAt":0})).unwrap();
+        db.save_skill(&skill)?;
+        let saved = db.get_installed_skill("s")?.unwrap();
+        assert!(saved.apps.workbuddy && saved.apps.dsh && saved.apps.claude);
+        let mut apps = saved.apps.clone();
+        apps.workbuddy = false;
+        db.update_skill_apps("s", &apps)?;
+        let saved = &db.get_all_installed_skills()?["s"];
+        assert!(!saved.apps.workbuddy && saved.apps.dsh && saved.apps.claude);
+        let mut apps = saved.apps.clone();
+        apps.dsh = false;
+        apps.workbuddy = true;
+        db.update_skill_apps("s", &apps)?;
+        let saved = &db.get_all_installed_skills()?["s"];
+        assert!(saved.apps.workbuddy && !saved.apps.dsh && saved.apps.claude);
         Ok(())
     }
 

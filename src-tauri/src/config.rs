@@ -360,28 +360,6 @@ pub fn get_app_config_path() -> PathBuf {
     get_app_config_dir().join("config.json")
 }
 
-/// 清理供应商名称，确保文件名安全
-#[allow(dead_code)]
-pub fn sanitize_provider_name(name: &str) -> String {
-    name.chars()
-        .map(|c| match c {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
-            _ => c,
-        })
-        .collect::<String>()
-        .to_lowercase()
-}
-
-/// 获取供应商配置文件路径
-#[allow(dead_code)]
-pub fn get_provider_config_path(provider_id: &str, provider_name: Option<&str>) -> PathBuf {
-    let base_name = provider_name
-        .map(sanitize_provider_name)
-        .unwrap_or_else(|| sanitize_provider_name(provider_id));
-
-    get_claude_config_dir().join(format!("settings-{base_name}.json"))
-}
-
 /// 读取 JSON 配置文件
 pub fn read_json_file<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T, AppError> {
     if !path.exists() {
@@ -604,7 +582,7 @@ pub(crate) fn stage_write(
 /// 不碰路径里的目录软链；除相对目标带 `..` 外不做 `canonicalize`（Windows 上会把路径
 /// 改写成 `\\?\` 形式），普通文件原样返回。
 /// 悬空链接照样返回它指向的路径，写入时会在那里新建文件、链接保留。
-fn resolve_symlink_target(path: &Path) -> PathBuf {
+pub(crate) fn resolve_symlink_target(path: &Path) -> PathBuf {
     // 与 Linux 的 MAXSYMLINKS 一致，防止链接成环时死循环。
     const MAX_HOPS: usize = 40;
     let mut current = path.to_path_buf();
@@ -1202,7 +1180,8 @@ mod tests {
         // 进程级环境变量的读写必须与同样改它们的测试互斥。锁是模块级共享的
         // （写成测试函数体内的 static 只能锁住自己，等于没锁），见
         // `proxy::http_client` 里同一套 env_lock() 用法。
-        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        use crate::sync_utils::MutexExt;
+        let _guard = env_lock().lock_recover();
 
         // 假装 HOME 指向另一处，并且那里有一份 db——正是会触发回退的形状
         let legacy_home = tempfile::tempdir().expect("tempdir");

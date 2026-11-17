@@ -62,7 +62,6 @@ pub struct RequestContext {
     /// 应用类型字符串（如 "claude"、"codex"、"gemini"）
     pub app_type_str: &'static str,
     /// 应用类型（预留，目前通过 app_type_str 使用）
-    #[allow(dead_code)]
     pub app_type: AppType,
     /// Session ID（从客户端请求提取或新生成）
     pub session_id: String,
@@ -251,31 +250,6 @@ impl RequestContext {
         self
     }
 
-    /// 隐私过滤：开关打开时脱敏用户输入和系统提示里的 PII / 密钥，工具结果看子开关
-    ///
-    /// 在上下文创建之后调用，Session ID 与模型名仍按原始请求体提取。
-    /// 占位符跟随界面语言（没设过语言时按系统区域，与托盘一致）。
-    pub fn apply_privacy_filter(&self, body: &mut serde_json::Value) {
-        if !self.privacy_filter_config.enabled {
-            return;
-        }
-        let language = crate::tray::tray_language();
-        let placeholders = crate::proxy::privacy_filter::Placeholders::for_language(&language);
-        let count = crate::proxy::privacy_filter::redact_request_body(
-            body,
-            placeholders,
-            self.privacy_filter_config.filter_tool_results,
-        );
-        if count > 0 {
-            log::info!(
-                "[{}] Privacy filter redacted {} item(s), session: {}",
-                self.tag,
-                count,
-                self.session_id
-            );
-        }
-    }
-
     /// 创建 RequestForwarder
     ///
     /// 使用共享的 ProviderRouter，确保熔断器状态跨请求保持
@@ -329,6 +303,7 @@ impl RequestContext {
         )
         .stack_request(self.is_stack)
         .failover_chain(self.app_config.auto_failover_enabled)
+        .privacy_filter(self.privacy_filter_config.clone())
     }
 
     /// 获取 Provider 列表（用于故障转移）
