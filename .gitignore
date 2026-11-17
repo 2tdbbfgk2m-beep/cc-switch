@@ -29,3 +29,6 @@ copilot-api
 .history
 CODEBUDDY.md
 mainWindow.js
+
+# node_modules/ above only matches directories; also ignore a symlinked node_modules
+/node_modules
