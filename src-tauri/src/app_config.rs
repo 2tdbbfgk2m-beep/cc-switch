@@ -56,7 +56,7 @@ impl McpApps {
             AppType::ClaudeDesktop => false,
             AppType::Agy => self.agy,
             AppType::Copilot => self.copilot,
-            AppType::Commandcode => false,
+            AppType::Commandcode => self.commandcode,
         }
     }
 
@@ -78,7 +78,7 @@ impl McpApps {
             AppType::Agy => self.agy = enabled,
             AppType::Omp => self.omp = enabled,
             AppType::Copilot => self.copilot = enabled,
-            AppType::Commandcode => {}
+            AppType::Commandcode => self.commandcode = enabled,
         }
     }
 
